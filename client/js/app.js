@@ -2303,65 +2303,68 @@
                 <!-- Export Controls & Variable Selection Card -->
                 <div class="export-config-card">
                     <div class="export-config-header">
-                        <h4>⚙️ Variables y Módulos a Incluir en el Informe</h4>
+                        <h4>
+                            <span>⚙️ Variables y Módulos a Incluir</span>
+                            <span class="export-active-badge" id="export-active-count">6 de 6 activos</span>
+                        </h4>
                         <div class="export-config-actions-quick">
-                            <button type="button" class="btn-xs btn-secondary" id="btn-export-select-all">Marcar Todos</button>
-                            <button type="button" class="btn-xs btn-secondary" id="btn-export-deselect-all">Desmarcar</button>
+                            <button type="button" class="btn-export-quick btn-export-quick-primary" id="btn-export-select-all">✓ Marcar Todos</button>
+                            <button type="button" class="btn-export-quick" id="btn-export-deselect-all">✕ Desmarcar</button>
                         </div>
                     </div>
 
                     <div class="export-variables-grid">
-                        <label class="export-var-item">
+                        <label class="export-var-item selected">
                             <input type="checkbox" class="export-var-checkbox" value="summary" checked>
-                            <span class="custom-checkbox"></span>
+                            <span class="custom-checkbox checked"></span>
                             <div class="export-var-text">
-                                <strong>Resumen General & KPIs</strong>
-                                <span>Volumen total, concurrencia máxima, duración y FPS medio</span>
+                                <strong>Resumen & KPIs</strong>
+                                <span>Volumen, concurrencia y FPS</span>
                             </div>
                         </label>
 
-                        <label class="export-var-item">
+                        <label class="export-var-item selected">
                             <input type="checkbox" class="export-var-checkbox" value="zones" checked>
-                            <span class="custom-checkbox"></span>
+                            <span class="custom-checkbox checked"></span>
                             <div class="export-var-text">
-                                <strong>Métricas por Zona (Fase 5)</strong>
-                                <span>Tiempos de permanencia, visitas y tasas de ocupación</span>
+                                <strong>Métricas Zonas</strong>
+                                <span>Permanencia y ocupación</span>
                             </div>
                         </label>
 
-                        <label class="export-var-item">
+                        <label class="export-var-item selected">
                             <input type="checkbox" class="export-var-checkbox" value="rhythms" checked>
-                            <span class="custom-checkbox"></span>
+                            <span class="custom-checkbox checked"></span>
                             <div class="export-var-text">
-                                <strong>Ritmos Temporales (Fase 6)</strong>
-                                <span>Clasificación espacial, cadencia de oleadas y coef. variación</span>
+                                <strong>Ritmos & Oleadas</strong>
+                                <span>Cadencia y variación</span>
                             </div>
                         </label>
 
-                        <label class="export-var-item">
+                        <label class="export-var-item selected">
                             <input type="checkbox" class="export-var-checkbox" value="peaks" checked>
-                            <span class="custom-checkbox"></span>
+                            <span class="custom-checkbox checked"></span>
                             <div class="export-var-text">
-                                <strong>Picos de Afluencia & Fotogramas</strong>
-                                <span>Marcas de tiempo exactas para contexto visual</span>
+                                <strong>Picos & Fotogramas</strong>
+                                <span>Marcas y fotogramas clave</span>
                             </div>
                         </label>
 
-                        <label class="export-var-item">
+                        <label class="export-var-item selected">
                             <input type="checkbox" class="export-var-checkbox" value="crowds" checked>
-                            <span class="custom-checkbox"></span>
+                            <span class="custom-checkbox checked"></span>
                             <div class="export-var-text">
-                                <strong>Aglomeraciones y Cuellos de Botella (Fase 7)</strong>
-                                <span>Puntos críticos espaciales, severidad y centroides</span>
+                                <strong>Aglomeraciones</strong>
+                                <span>Cuellos de botella (Fase 7)</span>
                             </div>
                         </label>
 
-                        <label class="export-var-item">
+                        <label class="export-var-item selected">
                             <input type="checkbox" class="export-var-checkbox" value="interactions" checked>
-                            <span class="custom-checkbox"></span>
+                            <span class="custom-checkbox checked"></span>
                             <div class="export-var-text">
-                                <strong>Interacciones y Proximidad Social (Fase 9)</strong>
-                                <span>Ratio social, parejas, caminatas y conversaciones</span>
+                                <strong>Interacciones</strong>
+                                <span>Proximidad social (Fase 9)</span>
                             </div>
                         </label>
                     </div>
@@ -2395,12 +2398,21 @@
 
                 <!-- Live Executive Report Preview / Printable Container -->
                 <div class="export-preview-card">
-                    <div class="export-preview-header">
-                        <span>👁️ Vista Previa del Informe Ejecutivo</span>
-                        <span class="text-subtle text-xs">Se actualiza en tiempo real según las variables marcadas</span>
+                    <div class="export-preview-toolbar">
+                        <div class="export-preview-toolbar-left">
+                            <span>👁️ Visualizador del Documento Ejecutivo</span>
+                            <span class="export-active-badge" id="preview-sections-badge">6 de 6 secciones activas</span>
+                        </div>
+                        <div class="export-preview-toolbar-right">
+                            <span class="text-subtle text-xs">Formato Ejecutivo A4 / PDF</span>
+                            <button type="button" class="btn-export-quick btn-export-quick-primary" id="btn-quick-print-toolbar">
+                                <span>🖨️ Imprimir PDF</span>
+                            </button>
+                        </div>
                     </div>
 
-                    <div id="executive-printable-report" class="executive-report-document">
+                    <div class="export-preview-viewport">
+                        <div id="executive-printable-report" class="executive-report-document">
                         <!-- Header banner -->
                         <div class="report-doc-header">
                             <div>
@@ -2601,49 +2613,82 @@
                         </div>
                     </div>
                 </div>
+            </div>
             `;
 
             dom.exportContainer.innerHTML = html;
 
             // Wire Checkbox toggles to live update visible preview sections
             const checkboxes = dom.exportContainer.querySelectorAll('.export-var-checkbox');
+            const badgeCount = document.getElementById('export-active-count');
+            const previewBadge = document.getElementById('preview-sections-badge');
+
             function updatePreviewSections() {
+                let activeCount = 0;
                 checkboxes.forEach(cb => {
+                    const isChecked = cb.checked;
+                    if (isChecked) activeCount++;
+
+                    // Update parent container selected class and custom checkbox
+                    const parentItem = cb.closest('.export-var-item');
+                    if (parentItem) {
+                        parentItem.classList.toggle('selected', isChecked);
+                        const customBox = parentItem.querySelector('.custom-checkbox');
+                        if (customBox) {
+                            customBox.classList.toggle('checked', isChecked);
+                        }
+                    }
+
+                    // Show or hide document section in visualizer
                     const secId = `rep-sec-${cb.value}`;
                     const el = document.getElementById(secId);
                     if (el) {
-                        el.style.display = cb.checked ? 'block' : 'none';
+                        el.style.display = isChecked ? 'block' : 'none';
                     }
                 });
+
+                if (badgeCount) badgeCount.textContent = `${activeCount} de ${checkboxes.length} activos`;
+                if (previewBadge) previewBadge.textContent = `${activeCount} de ${checkboxes.length} secciones activas`;
             }
 
+            // Bind change listener to checkboxes
             checkboxes.forEach(cb => {
-                cb.addEventListener('change', updatePreviewSections);
+                cb.addEventListener('change', () => {
+                    updatePreviewSections();
+                });
             });
 
             // Quick select / deselect
             const btnSelAll = document.getElementById('btn-export-select-all');
             const btnDeselAll = document.getElementById('btn-export-deselect-all');
             if (btnSelAll) {
-                btnSelAll.addEventListener('click', () => {
+                btnSelAll.addEventListener('click', (e) => {
+                    e.preventDefault();
                     checkboxes.forEach(cb => { cb.checked = true; });
                     updatePreviewSections();
                 });
             }
             if (btnDeselAll) {
-                btnDeselAll.addEventListener('click', () => {
+                btnDeselAll.addEventListener('click', (e) => {
+                    e.preventDefault();
                     checkboxes.forEach(cb => { cb.checked = false; });
                     updatePreviewSections();
                 });
             }
 
+            // Initialize preview state immediately
+            updatePreviewSections();
+
             // Print PDF Action
             const btnPrint = document.getElementById('btn-print-pdf-report');
-            if (btnPrint) {
-                btnPrint.addEventListener('click', () => {
-                    window.print();
-                });
-            }
+            const btnQuickPrint = document.getElementById('btn-quick-print-toolbar');
+            [btnPrint, btnQuickPrint].forEach(btn => {
+                if (btn) {
+                    btn.addEventListener('click', () => {
+                        window.print();
+                    });
+                }
+            });
 
             // CSV Download Action
             const btnCsv = document.getElementById('btn-download-csv-report');
