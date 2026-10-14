@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="description" content="Sistema de investigación y observación de espacios físicos mediante visión computacional">
+    <title>Ritmos — Observación Espacial</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- HEADER                                                  -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <header id="app-header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">◉</span>
+                <h1>Ritmos</h1>
+            </div>
+            <span class="version-badge">Ritmos Espaciales</span>
+        </div>
+
+        <div class="header-center">
+            <input type="text" id="space-name-input" class="space-name-input" 
+                   placeholder="Nombre del espacio (ej. Plaza Central, Acceso 1)" 
+                   value="Ritmos">
+        </div>
+
+        <div class="header-right">
+            <button id="btn-open-history" class="btn-history" title="Ver sesiones guardadas">
+                <span>📂 Historial</span>
+                <span id="history-count" class="history-badge">0</span>
+            </button>
+            <div id="connection-status" class="status-indicator disconnected">
+                <span class="status-dot"></span>
+                <span class="status-text">Desconectado</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- MAIN OBSERVATORY LAYOUT                                 -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <main id="app-main">
+        <!-- ─── Video & Canvas Area ─────────────────────────── -->
+        <section id="video-section">
+            <div id="camera-container">
+                <video id="camera-video" autoplay playsinline muted></video>
+                <video id="replay-video" class="replay-video hidden" playsinline muted></video>
+                <canvas id="heatmap-canvas"></canvas>
+                <canvas id="overlay-canvas"></canvas>
+
+                <!-- Overlay: No camera placeholder -->
+                <div id="camera-placeholder" class="camera-overlay">
+                    <div class="placeholder-content">
+                        <span class="placeholder-icon">📷</span>
+                        <p>Presiona <strong>Iniciar Cámara</strong> para comenzar la observación del espacio</p>
+                    </div>
+                </div>
+
+                <!-- Overlay: Processing indicator -->
+                <div id="processing-indicator" class="hidden">
+                    <span class="pulse-dot"></span>
+                    <span>Procesando visión</span>
+                </div>
+
+                <!-- Floating Mode Indicator: Historical Replay (Allows clear return to Live Camera) -->
+                <div id="replay-mode-badge" class="replay-mode-badge hidden">
+                    <span class="pulse-dot" style="background:#ff9f0a; box-shadow:0 0 8px #ff9f0a;"></span>
+                    <span style="font-weight:600;">REPRODUCCIÓN HISTÓRICA</span>
+                    <button id="btn-exit-replay-floating" class="btn-exit-replay-pill" title="Volver a la cámara en vivo">
+                        📹 Volver a Cámara en Vivo
+                    </button>
+                </div>
+
+                <!-- Floating Zone Drawing Bar (Phase 3) -->
+                <div id="zone-drawing-bar" class="zone-drawing-bar hidden">
+                    <div class="drawing-info">
+                        <span class="drawing-icon">✏️</span>
+                        <span>Haz clic sobre el video para marcar los puntos de la zona</span>
+                        <strong id="drawing-point-count">(0 puntos)</strong>
+                    </div>
+                    <div class="drawing-actions">
+                        <button id="btn-save-zone" class="btn btn-xs btn-primary">✓ Guardar Zona</button>
+                        <button id="btn-undo-zone" class="btn btn-xs btn-secondary">↩ Deshacer</button>
+                        <button id="btn-cancel-zone" class="btn btn-xs btn-danger">✕ Cancelar</button>
+                    </div>
+                </div>
+
+                <!-- Floating Heatmap Controls Bar (Phase 4) -->
+                <div id="heatmap-floating-bar" class="heatmap-floating-bar hidden">
+                    <div class="heatmap-bar-top">
+                        <div class="heatmap-segmented-control">
+                            <button type="button" class="segment-btn active" data-mode="presence">
+                                <span class="segment-icon">🔥</span>
+                                <span>Presencia</span>
+                            </button>
+                            <button type="button" class="segment-btn" data-mode="dwell">
+                                <span class="segment-icon">🛑</span>
+                                <span>Permanencia</span>
+                            </button>
+                            <button type="button" class="segment-btn" data-mode="flow">
+                                <span class="segment-icon">〰️</span>
+                                <span>Flujos</span>
+                            </button>
+                            <button type="button" class="segment-btn" data-mode="trajectories">
+                                <span class="segment-icon">↗️</span>
+                                <span>Trayectorias</span>
+                            </button>
+                            <button type="button" class="segment-btn btn-segment-off" data-mode="off">
+                                <span class="segment-icon">✕</span>
+                                <span>Apagar</span>
+                            </button>
+                        </div>
+                        <div class="heatmap-quick-actions">
+                            <button id="btn-heatmap-reset" class="btn-xs btn-secondary" title="Reiniciar acumulación de mapa">↺ Limpiar</button>
+                            <button id="btn-heatmap-export" class="btn-xs btn-secondary" title="Descargar captura PNG con mapa de calor">📸 PNG</button>
+                        </div>
+                    </div>
+                    <div class="heatmap-bar-bottom">
+                        <div class="heatmap-control-item">
+                            <span class="heatmap-label">Opacidad:</span>
+                            <input type="range" id="heatmap-opacity-range" min="0.1" max="0.9" step="0.05" value="0.42" class="ios-slider">
+                            <span id="heatmap-opacity-val" class="heatmap-val">42%</span>
+                        </div>
+                        <div class="heatmap-control-item">
+                            <span class="heatmap-label">Radio:</span>
+                            <input type="range" id="heatmap-radius-range" min="12" max="60" step="2" value="28" class="ios-slider">
+                            <span id="heatmap-radius-val" class="heatmap-val">28px</span>
+                        </div>
+                        <div class="heatmap-control-item">
+                            <span class="heatmap-label">Persona:</span>
+                            <select id="heatmap-person-select" class="config-select config-select-sm">
+                                <option value="all">Todas</option>
+                            </select>
+                        </div>
+                        <div class="heatmap-control-item">
+                            <span class="heatmap-label">Ventana:</span>
+                            <select id="heatmap-window-select" class="config-select config-select-sm">
+                                <option value="0" selected>Toda la sesión</option>
+                                <option value="30">Últimos 30s</option>
+                                <option value="120">Últimos 2m</option>
+                                <option value="300">Últimos 5m</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Floating Interactive Timeline Player (Historical Heatmap & Motion Replay) -->
+                <div id="timeline-player-bar" class="timeline-player-bar hidden">
+                    <div class="timeline-top-row">
+                        <div class="timeline-session-badge">
+                            <span class="timeline-pulse-dot"></span>
+                            <span class="timeline-session-title" id="timeline-session-name">Sesión Histórica</span>
+                            <span class="timeline-session-info" id="timeline-points-stat">0 puntos</span>
+                        </div>
+                        <div class="timeline-time-display">
+                            <span id="timeline-current-time">00:00</span>
+                            <span class="timeline-time-sep">/</span>
+                            <span id="timeline-total-duration">00:00</span>
+                        </div>
+                        <div class="timeline-right-actions">
+                            <div class="timeline-speed-selector">
+                                <button type="button" class="btn-timeline-speed" data-speed="0.5">0.5x</button>
+                                <button type="button" class="btn-timeline-speed active" data-speed="1.0">1x</button>
+                                <button type="button" class="btn-timeline-speed" data-speed="2.0">2x</button>
+                                <button type="button" class="btn-timeline-speed" data-speed="4.0">4x</button>
+                            </div>
+                            <button id="btn-timeline-toggle-clean" class="btn-timeline-clean" title="Ocultar paneles para ver solo el video limpio">👁️ Ocultar Panel</button>
+                            <button id="btn-timeline-close" class="btn-timeline-close btn-return-live-accent" title="Salir de la reproducción y volver a la cámara en vivo">🔴 Volver a Cámara en Vivo</button>
+                        </div>
+                    </div>
+
+                    <!-- Scrubber Track Slider -->
+                    <div class="timeline-scrubber-container">
+                        <input type="range" id="timeline-scrubber" min="0" max="100" step="0.1" value="0" class="timeline-slider">
+                    </div>
+
+                    <!-- Playback Controls & Layers -->
+                    <div class="timeline-controls-row">
+                        <div class="timeline-playback-buttons">
+                            <button id="btn-timeline-restart" class="btn-timeline-ctrl" title="Volver al inicio (00:00)">⏮</button>
+                            <button id="btn-timeline-step-back" class="btn-timeline-ctrl" title="Retroceder 1 segundo">⏪ -1s</button>
+                            <button id="btn-timeline-play" class="btn-timeline-ctrl btn-timeline-play" title="Reproducir / Pausar">
+                                <span id="timeline-play-icon">▶</span>
+                            </button>
+                            <button id="btn-timeline-step-fwd" class="btn-timeline-ctrl" title="Avanzar 1 segundo">+1s ⏩</button>
+                        </div>
+
+                        <!-- Independent Layer Toggles (Requirement 2) -->
+                        <div class="timeline-layers-group">
+                            <span class="timeline-mode-label">Capas:</span>
+                            <button type="button" id="toggle-layer-heatmap" class="btn-layer-pill active" title="Activar/Desactivar Heatmap">🔥 Heatmap</button>
+                            <button type="button" id="toggle-layer-trajectories" class="btn-layer-pill active" title="Activar/Desactivar Trayectorias">↗️ Recorridos</button>
+                            <button type="button" id="toggle-layer-zones" class="btn-layer-pill active" title="Activar/Desactivar Zonas">📐 Zonas</button>
+                            <button type="button" id="toggle-layer-labels" class="btn-layer-pill active" title="Activar/Desactivar Etiquetas de Personas">📍 Etiquetas</button>
+                            <button type="button" id="toggle-layer-grid" class="btn-layer-pill" title="Activar/Desactivar Cuadrícula">▦ Red</button>
+                        </div>
+
+                        <div class="timeline-mode-toggle">
+                            <span class="timeline-mode-label">Modo:</span>
+                            <button type="button" id="btn-timeline-mode-cum" class="btn-timeline-mode active" title="Acumulado desde el inicio hasta el tiempo actual">Acumulado</button>
+                            <button type="button" id="btn-timeline-mode-win" class="btn-timeline-mode" title="Solo datos de los últimos 15 segundos">Ventana 15s</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Floating Restore Controls Button (When Clean Mode is active) -->
+                <button id="btn-timeline-restore-controls" class="btn-timeline-restore-controls hidden" title="Mostrar controles de la línea de tiempo">
+                    <span>👁️ Mostrar Controles</span>
+                </button>
+
+                <!-- Floating Exit Fullscreen Button -->
+                <button id="btn-exit-fullscreen" class="btn-exit-fullscreen hidden" title="Salir de pantalla completa">
+                    <span>✕ Salir de Pantalla Completa</span>
+                </button>
+
+                <!-- Overlay: Frame info -->
+                <div id="frame-info" class="hidden">
+                    <span id="fps-display">-- FPS</span>
+                    <span id="resolution-display">--×--</span>
+                </div>
+            </div>
+
+            <!-- Session HUD & Timer Bar -->
+            <div id="timer-bar">
+                <div class="timer-display">
+                    <span class="timer-icon">⏱</span>
+                    <span id="timer-value">00:00:00</span>
+                </div>
+                <div class="hud-session-info">
+                    <span class="hud-stat-pill">Puntos DB: <strong id="hud-points-count">0</strong></span>
+                    <div id="session-status-text">Sin sesión activa</div>
+                </div>
+            </div>
+
+            <!-- Controls Bar -->
+            <div id="controls-bar">
+                <div class="controls-group">
+                    <button id="btn-camera" class="btn btn-secondary" title="Encender / Apagar cámara">
+                        <span class="btn-icon">📷</span>
+                        <span class="btn-label">Cámara</span>
+                    </button>
+                    <button id="btn-camera-flip" class="btn btn-secondary" title="Detectar y cambiar entre las distintas cámaras disponibles del dispositivo">
+                        <span class="btn-icon">🔄</span>
+                        <span class="btn-label" id="camera-flip-label">Cambiar Cámara</span>
+                    </button>
+                    <button id="btn-start" class="btn btn-primary" disabled title="Iniciar sesión de observación y guardar datos">
+                        <span class="btn-icon">▶</span>
+                        <span class="btn-label">Iniciar Sesión</span>
+                    </button>
+                    <button id="btn-pause" class="btn btn-warning hidden" title="Pausar grabación">
+                        <span class="btn-icon">⏸</span>
+                        <span class="btn-label">Pausar</span>
+                    </button>
+                    <button id="btn-resume" class="btn btn-primary hidden" title="Reanudar grabación">
+                        <span class="btn-icon">▶</span>
+                        <span class="btn-label">Continuar</span>
+                    </button>
+                    <button id="btn-stop" class="btn btn-danger hidden" title="Finalizar sesión y registrar resumen">
+                        <span class="btn-icon">⏹</span>
+                        <span class="btn-label">Finalizar</span>
+                    </button>
+                    <button id="btn-zones" class="btn btn-toggle" title="Gestionar y dibujar zonas espaciales">
+                        <span class="btn-icon">📐</span>
+                        <span class="btn-label">Zonas (<span id="zones-count-badge">0</span>)</span>
+                    </button>
+                    <button id="btn-heatmaps" class="btn btn-toggle" title="Activar y configurar mapas de calor y recorridos acumulativos">
+                        <span class="btn-icon">🔥</span>
+                        <span class="btn-label">Heatmaps</span>
+                    </button>
+                    <button id="btn-grid" class="btn btn-toggle" title="Activar/Desactivar cuadrícula de coordenadas espaciales">
+                        <span class="btn-icon">▦</span>
+                        <span class="btn-label">Cuadrícula</span>
+                    </button>
+                    <button id="btn-fullscreen" class="btn btn-secondary" title="Ver cámara a pantalla completa">
+                        <span class="btn-icon">⛶</span>
+                        <span class="btn-label">Pantalla Completa</span>
+                    </button>
+                </div>
+
+                <div class="controls-group controls-config">
+                    <label class="config-label">
+                        <span>Formato:</span>
+                        <select id="select-aspect" class="config-select">
+                            <option value="16-9" selected>Horizontal (16:9)</option>
+                            <option value="4-3">Estándar (4:3)</option>
+                            <option value="auto">Automático</option>
+                        </select>
+                    </label>
+                    <label class="config-label">
+                        <span>FPS:</span>
+                        <select id="select-fps" class="config-select">
+                            <option value="1">1 FPS</option>
+                            <option value="2">2 FPS</option>
+                            <option value="3">3 FPS</option>
+                            <option value="5" selected>5 FPS</option>
+                            <option value="8">8 FPS</option>
+                            <option value="10">10 FPS</option>
+                        </select>
+                    </label>
+                    <label class="config-label">
+                        <span>Calidad:</span>
+                        <select id="select-quality" class="config-select">
+                            <option value="0.4">Baja</option>
+                            <option value="0.6" selected>Media</option>
+                            <option value="0.8">Alta</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+        </section>
+
+        <!-- ─── Analytics & Live Coordinates Sidebar ────────── -->
+        <aside id="stats-sidebar">
+            <!-- Live Metrics -->
+            <div class="panel" id="panel-stats">
+                <div class="panel-header">
+                    <div class="panel-header-left">
+                        <span class="panel-icon">📊</span>
+                        <h2>Estadísticas en Vivo</h2>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div class="stat-grid">
+                        <div class="stat-card stat-highlight">
+                            <div class="stat-value" id="stat-visible">0</div>
+                            <div class="stat-label">Cuerpos Visibles</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-total">0</div>
+                            <div class="stat-label">Total Únicos</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-max">0</div>
+                            <div class="stat-label">Pico Simultáneo</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value" id="stat-processing">--</div>
+                            <div class="stat-label">Latencia (ms)</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Spatial Zones Occupancy (Phase 3) -->
+            <div class="panel" id="panel-zones">
+                <div class="panel-header">
+                    <div class="panel-header-left">
+                        <span class="panel-icon">📐</span>
+                        <h2>Ocupación de Zonas</h2>
+                    </div>
+                    <button id="btn-open-zones-modal" class="btn-xs btn-secondary" title="Configurar polígonos de zonas">Gestionar</button>
+                </div>
+                <div class="panel-body">
+                    <div id="zones-occupancy-list" class="zones-occupancy-list">
+                        <div class="persons-empty">Sin zonas configuradas</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Live Tracked Individuals with Spatial Coordinates -->
+            <div class="panel" id="panel-persons">
+                <div class="panel-header">
+                    <div class="panel-header-left">
+                        <span class="panel-icon">📍</span>
+                        <h2>Coordenadas Espaciales</h2>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div id="persons-list" class="persons-list">
+                        <div class="persons-empty">
+                            Sin detecciones en el encuadre
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Temporal Activity Density Chart -->
+            <div class="panel" id="panel-activity">
+                <div class="panel-header">
+                    <div class="panel-header-left">
+                        <span class="panel-icon">📈</span>
+                        <h2>Densidad Temporal</h2>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <canvas id="activity-chart" height="95"></canvas>
+                </div>
+            </div>
+
+            <!-- Chronological Event Log -->
+            <div class="panel" id="panel-events">
+                <div class="panel-header">
+                    <div class="panel-header-left">
+                        <span class="panel-icon">📋</span>
+                        <h2>Registro de Entradas / Salidas</h2>
+                    </div>
+                </div>
+                <div class="panel-body">
+                    <div id="events-list" class="events-list">
+                        <div class="events-empty">
+                            Sin eventos registrados
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SESSIONS HISTORY MODAL (PHASE 2)                        -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="modal-history" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3><span>📂</span> Historial de Sesiones Grabadas (SQLite)</h3>
+                <button id="btn-close-history" class="btn-close-modal">✕</button>
+            </div>
+            <div id="history-sessions-container" class="modal-body">
+                <div class="persons-empty">Cargando sesiones...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SPATIAL ZONES MODAL (PHASE 3)                           -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="modal-zones" class="modal-overlay">
+        <div class="modal-box">
+            <div class="modal-header">
+                <h3><span>📐</span> Zonas Espaciales (Polígonos de Interés)</h3>
+                <button id="btn-close-zones" class="btn-close-modal">✕</button>
+            </div>
+            <div class="modal-body">
+                <!-- Zone Creation Form -->
+                <div class="zone-creator-card">
+                    <h4>Nueva Zona</h4>
+                    <div class="zone-creator-inputs">
+                        <input type="text" id="input-zone-name" class="space-name-input" 
+                               placeholder="Nombre (ej. Entrada, Pasillo, Caja, Mesas)" style="flex:1;">
+                        <div class="color-picker-group">
+                            <span class="color-label">Color:</span>
+                            <div class="color-swatches" id="zone-color-swatches">
+                                <button type="button" class="swatch selected" data-color="#0a84ff" style="background:#0a84ff;"></button>
+                                <button type="button" class="swatch" data-color="#30d158" style="background:#30d158;"></button>
+                                <button type="button" class="swatch" data-color="#ff9f0a" style="background:#ff9f0a;"></button>
+                                <button type="button" class="swatch" data-color="#bf5af2" style="background:#bf5af2;"></button>
+                                <button type="button" class="swatch" data-color="#ff453a" style="background:#ff453a;"></button>
+                                <button type="button" class="swatch" data-color="#64d2ff" style="background:#64d2ff;"></button>
+                                <button type="button" class="swatch" data-color="#ffd60a" style="background:#ffd60a;"></button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="zone-creator-actions">
+                        <button id="btn-start-draw-zone" class="btn btn-primary btn-sm">
+                            <span class="btn-icon">✏️</span>
+                            <span>Marcar Polígono en el Video</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Configured Zones List -->
+                <div class="configured-zones-header">
+                    <h4>Zonas Configuradas</h4>
+                </div>
+                <div id="modal-zones-list" class="configured-zones-list">
+                    <div class="persons-empty">No hay zonas configuradas. Crea una arriba.</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- ZONE METRICS & DWELL TIMES MODAL (PHASE 5)              -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="modal-zone-metrics" class="modal-overlay">
+        <div class="modal-box modal-box-lg">
+            <div class="modal-header">
+                <h3><span>📊</span> Métricas de Permanencia y Ocupación por Zona (Fase 5)</h3>
+                <button id="btn-close-zone-metrics" class="btn-close-modal">✕</button>
+            </div>
+            <div id="zone-metrics-container" class="modal-body">
+                <div class="persons-empty">Cargando métricas de zona...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- RHYTHMS & TEMPORAL PATTERNS MODAL (PHASE 6)             -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="modal-rhythms" class="modal-overlay">
+        <div class="modal-box modal-box-lg">
+            <div class="modal-header">
+                <h3><span>⏱️</span> Ritmos Temporales, Cadencia de Oleadas y Picos (Fase 6)</h3>
+                <button id="btn-close-rhythms" class="btn-close-modal">✕</button>
+            </div>
+            <div id="rhythms-container" class="modal-body">
+                <div class="persons-empty">Cargando análisis de ritmos...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- JAVASCRIPT MODULES                                      -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <script src="js/camera.js"></script>
+    <script src="js/websocket.js"></script>
+    <script src="js/heatmap-renderer.js"></script>
+    <script src="js/timeline.js"></script>
+    <script src="js/canvas-overlay.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
