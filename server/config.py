@@ -22,8 +22,8 @@ MODELS_DIR.mkdir(exist_ok=True)
 # Model variant: "yolo11n.pt" (fast, less accurate) or "yolo11s.pt" (balanced)
 YOLO_MODEL = os.getenv("YOLO_MODEL", "yolo11n.pt")
 
-# Minimum confidence threshold for detections
-YOLO_CONFIDENCE = float(os.getenv("YOLO_CONFIDENCE", "0.3"))
+# Minimum confidence threshold for detections (0.22 for enhanced capture)
+YOLO_CONFIDENCE = float(os.getenv("YOLO_CONFIDENCE", "0.22"))
 
 # Classes to detect (COCO class IDs)
 # 0=person, 1=bicycle, 13=bench, 14=bird, 15=cat, 16=dog,
@@ -41,7 +41,7 @@ DEFAULT_ANALYSIS_FPS = int(os.getenv("DEFAULT_ANALYSIS_FPS", "5"))
 STOP_SPEED_THRESHOLD = float(os.getenv("STOP_SPEED_THRESHOLD", "0.005"))
 
 # How many frames a person can be missing before considered "exited"
-TRACK_DISAPPEAR_FRAMES = int(os.getenv("TRACK_DISAPPEAR_FRAMES", "30"))
+TRACK_DISAPPEAR_FRAMES = int(os.getenv("TRACK_DISAPPEAR_FRAMES", "45"))
 
 # ─── Server Configuration ───────────────────────────────
 HOST = os.getenv("HOST", "0.0.0.0")

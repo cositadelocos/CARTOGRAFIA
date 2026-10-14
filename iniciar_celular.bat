@@ -4,11 +4,16 @@ echo ============================================================
 echo   📱 INICIANDO CONEXION SEGURA HTTPS PARA CELULAR / IPHONE
 echo ============================================================
 echo.
-echo Obteniendo contrasena de verificacion...
-powershell -Command "Write-Host 'Tu contrasena de acceso es: ' -NoNewline; (Invoke-RestMethod -Uri 'https://loca.lt/mytunnelpassword').Trim()"
+echo Iniciando tunel seguro de alta velocidad (Cloudflare Edge)...
 echo.
-echo Iniciando tunel HTTPS...
-echo Abre el enlace que aparecera a continuacion en Safari/Chrome de tu celular.
-echo.
-npx localtunnel --port 8000
+cd /d "%~dp0"
+if exist "cloudflared.exe" (
+    echo Abre en Safari de tu iPhone la direccion https://... que saldra abajo:
+    echo (No requiere contrasenas ni pantallas de espera, conecta de inmediato)
+    echo.
+    cloudflared.exe tunnel --url http://127.0.0.1:8000
+) else (
+    echo Usando localtunnel...
+    npx localtunnel --port 8000
+)
 pause

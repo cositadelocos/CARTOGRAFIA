@@ -67,6 +67,7 @@ class FrameProcessor:
         self.active_tracks = {}  # {track_id: frames_since_last_seen}
         self._processing_times = []  # Last N processing times for avg
         self._max_time_history = 30
+        self._next_fallback_id = 1000
 
         # Session tracking state
         self.current_session_id = None
@@ -271,10 +272,17 @@ class FrameProcessor:
 
         for result in results:
             boxes = result.boxes
-            if boxes is not None and boxes.id is not None:
-                track_ids = boxes.id.cpu().numpy().astype(int)
+            if boxes is not None and len(boxes) > 0:
                 bboxes = boxes.xyxy.cpu().numpy()
                 confs = boxes.conf.cpu().numpy()
+
+                if boxes.id is not None:
+                    track_ids = boxes.id.cpu().numpy().astype(int)
+                else:
+                    track_ids = []
+                    for _ in bboxes:
+                        self._next_fallback_id += 1
+                        track_ids.append(self._next_fallback_id)
 
                 for tid, bbox, conf in zip(track_ids, bboxes, confs):
                     tid = int(tid)
