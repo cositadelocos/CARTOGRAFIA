@@ -247,3 +247,30 @@ async def export_session_csv(
     )
 
 
+@router.get("/sessions/{session_id}/export/excel")
+async def export_session_excel_endpoint(
+    session_id: str,
+    sections: Optional[str] = Query("summary,zones,rhythms,crowds,interactions,peaks", description="Secciones a incluir separadas por comas")
+):
+    """
+    Phase 10: Exportación ejecutiva a Microsoft Excel (.xlsx) nativo con formato corporativo,
+    múltiples hojas, indicadores clave, tablas estilizadas y gráficos integrados.
+    """
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    sec_list = [s.strip().lower() for s in (sections or "").split(",") if s.strip()]
+    excel_bytes = db.export_session_excel(session_id, sections=sec_list)
+
+    safe_name = "".join(c for c in session.get("name", "sesion") if c.isalnum() or c in (" ", "_", "-")).strip() or "sesion"
+    return Response(
+        content=excel_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}_{session_id}.xlsx"'
+        }
+    )
+
+
+

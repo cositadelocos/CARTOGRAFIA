@@ -3197,21 +3197,52 @@ input[type="checkbox"]:checked + .custom-checkbox::after {
    PRINT STYLES FOR PDF EXPORT (@media print)
    ═══════════════════════════════════════════════════════════ */
 @media print {
-    body * {
-        visibility: hidden !important;
+    /* 1. Reset Root Page */
+    @page {
+        size: A4 portrait;
+        margin: 12mm 10mm;
     }
 
-    #modal-export,
-    #modal-export * {
-        visibility: visible !important;
+    html, body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        min-height: 100% !important;
+        overflow: visible !important;
     }
 
+    /* 2. Completely remove everything else from layout */
+    #app-header,
+    #app-container,
+    #timeline-bar,
+    .modal-overlay:not(#modal-export),
+    .floating-badge,
+    .btn-timeline-restore-controls {
+        display: none !important;
+    }
+
+    body > *:not(#modal-export) {
+        display: none !important;
+    }
+
+    /* 3. Render Modal as Pure Paper Sheet */
     #modal-export {
         position: static !important;
-        background: transparent !important;
+        display: block !important;
+        background: #ffffff !important;
         padding: 0 !important;
         margin: 0 !important;
         opacity: 1 !important;
+        visibility: visible !important;
+        width: 100% !important;
+        height: auto !important;
+        max-height: none !important;
+        overflow: visible !important;
+        inset: auto !important;
+        transform: none !important;
     }
 
     #modal-export .modal-box {
@@ -3220,10 +3251,15 @@ input[type="checkbox"]:checked + .custom-checkbox::after {
         max-width: 100% !important;
         width: 100% !important;
         max-height: none !important;
-        background: transparent !important;
+        height: auto !important;
+        background: #ffffff !important;
         transform: none !important;
+        overflow: visible !important;
+        padding: 0 !important;
+        margin: 0 !important;
     }
 
+    /* Hide UI Chrome (Close button, top tabs, config cards, preview toolbar) */
     #modal-export .modal-header,
     #modal-export .rhythm-overview-bar,
     #modal-export .export-config-card,
@@ -3235,26 +3271,35 @@ input[type="checkbox"]:checked + .custom-checkbox::after {
 
     #modal-export .modal-body {
         padding: 0 !important;
+        margin: 0 !important;
         overflow: visible !important;
         height: auto !important;
+        max-height: none !important;
+        display: block !important;
     }
 
     #modal-export .export-preview-card,
     #modal-export .export-preview-viewport {
-        background: transparent !important;
+        background: #ffffff !important;
         border: none !important;
         padding: 0 !important;
+        margin: 0 !important;
         max-height: none !important;
         height: auto !important;
         overflow: visible !important;
         box-shadow: none !important;
+        display: block !important;
     }
 
     .executive-report-document {
         box-shadow: none !important;
+        border: none !important;
         padding: 0 !important;
+        margin: 0 !important;
         width: 100% !important;
+        max-width: 100% !important;
         color: #000000 !important;
+        background: #ffffff !important;
         page-break-after: avoid;
     }
 
@@ -3265,6 +3310,7 @@ input[type="checkbox"]:checked + .custom-checkbox::after {
 
     .report-section {
         page-break-inside: avoid;
+        margin-bottom: 14px;
     }
 }
 

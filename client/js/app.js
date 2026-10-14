@@ -2384,9 +2384,13 @@
                                 <span class="btn-icon">📄</span>
                                 <span>Imprimir / Guardar como PDF</span>
                             </button>
-                            <button type="button" class="btn btn-sm btn-secondary" id="btn-download-csv-report">
+                            <button type="button" class="btn btn-sm btn-secondary" id="btn-download-excel-report" style="background: rgba(48, 209, 88, 0.15); border-color: rgba(48, 209, 88, 0.45); color: #30d158;">
                                 <span class="btn-icon">📊</span>
-                                <span>Descargar CSV / Excel</span>
+                                <span>Descargar Excel (.xlsx)</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" id="btn-download-csv-report">
+                                <span class="btn-icon">📑</span>
+                                <span>Descargar CSV Plano</span>
                             </button>
                             <button type="button" class="btn btn-sm btn-secondary" id="btn-download-full-json">
                                 <span class="btn-icon">💾</span>
@@ -2689,6 +2693,15 @@
                     });
                 }
             });
+
+            // Excel (.xlsx) Download Action
+            const btnExcel = document.getElementById('btn-download-excel-report');
+            if (btnExcel) {
+                btnExcel.addEventListener('click', () => {
+                    const selSections = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value).join(',');
+                    window.location.href = `/api/analytics/sessions/${sessionId}/export/excel?sections=${encodeURIComponent(selSections)}`;
+                });
+            }
 
             // CSV Download Action
             const btnCsv = document.getElementById('btn-download-csv-report');

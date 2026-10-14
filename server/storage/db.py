@@ -1521,6 +1521,434 @@ class Database:
 
         return output.getvalue()
 
+    def export_session_excel(
+        self,
+        session_id: str,
+        sections: Optional[List[str]] = None
+    ) -> bytes:
+        """
+        Exportación ejecutiva a Microsoft Excel (.xlsx) con múltiples hojas formateadas,
+        paleta corporativa, bordes limpios, auto-ajuste de columnas y gráficos nativos.
+        """
+        import io
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.utils import get_column_letter
+        from openpyxl.chart import BarChart, LineChart, Reference
+
+        if sections is None:
+            sections = ["summary", "zones", "rhythms", "crowds", "interactions", "peaks"]
+
+        s = self.get_session(session_id)
+        if not s:
+            return b""
+
+        wb = openpyxl.Workbook()
+        # Remove default empty sheet
+        wb.remove(wb.active)
+
+        # Style Definitions
+        font_title = Font(name="Segoe UI", size=14, bold=True, color="1A365D")
+        font_subtitle = Font(name="Segoe UI", size=9, italic=True, color="718096")
+        font_section = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+        font_header = Font(name="Segoe UI", size=9.5, bold=True, color="FFFFFF")
+        font_kpi_num = Font(name="Segoe UI", size=16, bold=True, color="1A365D")
+        font_bold = Font(name="Segoe UI", size=9.5, bold=True, color="2D3748")
+        font_normal = Font(name="Segoe UI", size=9.5, color="2D3748")
+        font_mono = Font(name="Consolas", size=9, color="2D3748")
+
+        fill_navy = PatternFill(start_color="1A365D", end_color="1A365D", fill_type="solid")
+        fill_blue = PatternFill(start_color="2B6CB0", end_color="2B6CB0", fill_type="solid")
+        fill_header = PatternFill(start_color="2D3748", end_color="2D3748", fill_type="solid")
+        fill_zebra = PatternFill(start_color="F7FAFC", end_color="F7FAFC", fill_type="solid")
+        fill_kpi = PatternFill(start_color="EDF2F7", end_color="EDF2F7", fill_type="solid")
+
+        thin_side = Side(style="thin", color="E2E8F0")
+        border_all = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        border_header = Border(left=thin_side, right=thin_side, top=thin_side, bottom=Side(style="medium", color="1A365D"))
+
+        align_center = Alignment(horizontal="center", vertical="center")
+        align_left = Alignment(horizontal="left", vertical="center")
+        align_right = Alignment(horizontal="right", vertical="center")
+
+        def style_header_row(ws, row_idx, col_count, fill=fill_header):
+            for col in range(1, col_count + 1):
+                cell = ws.cell(row=row_idx, column=col)
+                cell.font = font_header
+                cell.fill = fill
+                cell.alignment = align_center
+                cell.border = border_header
+
+        # ─── 1. HOJA: RESUMEN GENERAL ───
+        if "summary" in sections:
+            ws_sum = wb.create_sheet(title="Resumen Ejecutivo")
+            ws_sum.views.sheetView[0].showGridLines = True
+
+            # Title
+            ws_sum.merge_cells("A1:F1")
+            ws_sum["A1"] = "RITMOS • INFORME EJECUTIVO DE OBSERVACIÓN ESPACIAL"
+            ws_sum["A1"].font = font_title
+            ws_sum["A1"].alignment = align_left
+
+            ws_sum.merge_cells("A2:F2")
+            ws_sum["A2"] = f"Generado automáticamente para investigación urbana y concurrencia espacial • ID: {s.get('id', '')}"
+            ws_sum["A2"].font = font_subtitle
+            ws_sum["A2"].alignment = align_left
+
+            # Metadata Table
+            headers_meta = ["Parámetro", "Valor Registrado"]
+            ws_sum.cell(row=4, column=1, value=headers_meta[0])
+            ws_sum.cell(row=4, column=2, value=headers_meta[1])
+            style_header_row(ws_sum, 4, 2, fill=fill_navy)
+
+            meta_rows = [
+                ("Nombre del Espacio", s.get("name", "Sin Nombre")),
+                ("ID de Sesión", s.get("id", "")),
+                ("Fecha / Hora de Inicio", s.get("created_at", "")),
+                ("Estado de Sesión", s.get("status", "Completada")),
+                ("Duración Total (segundos)", f"{s.get('duration_seconds', 0)} s"),
+                ("Duración Total (minutos)", f"{round((s.get('duration_seconds') or 0) / 60, 2)} min"),
+                ("Fotogramas Totales Analizados", s.get("total_frames", 0)),
+                ("Rendimiento Promedio (FPS)", f"{s.get('avg_fps', 0)} fps"),
+            ]
+            for r_i, (k, v) in enumerate(meta_rows, start=5):
+                c1 = ws_sum.cell(row=r_i, column=1, value=k)
+                c2 = ws_sum.cell(row=r_i, column=2, value=v)
+                c1.font = font_bold; c1.alignment = align_left; c1.border = border_all
+                c2.font = font_normal; c2.alignment = align_left; c2.border = border_all
+                if r_i % 2 == 0:
+                    c1.fill = fill_zebra; c2.fill = fill_zebra
+
+            # KPI Highlights Box (Right side)
+            ws_sum.merge_cells("D4:F4")
+            ws_sum["D4"] = "INDICADORES CLAVE (KPIS)"
+            ws_sum["D4"].font = font_section
+            ws_sum["D4"].fill = fill_blue
+            ws_sum["D4"].alignment = align_center
+
+            kpi_data = [
+                ("Total Individuos Únicos", s.get("total_persons", 0), "personas detectadas y seguidas"),
+                ("Pico Concurrente Máximo", s.get("max_concurrent", 0), "personas simultáneas en encuadre"),
+            ]
+            # Fetch rhythms for movement dynamics
+            rhythms_data = self.get_session_rhythms(session_id, bucket_seconds=5) if ("rhythms" in sections or "peaks" in sections) else {}
+            r_sum = rhythms_data.get("rhythm_summary", {})
+            if r_sum:
+                kpi_data.append(("Dinámica Movimiento vs Parado", f"{r_sum.get('movement_ratio_percent', 0)}% / {r_sum.get('stopped_ratio_percent', 0)}%", "actividad cinemática observada"))
+                kpi_data.append(("Patrón Clasificado", r_sum.get("classification", "Estándar"), r_sum.get("description", "")))
+
+            kpi_row = 5
+            for title, val, sub in kpi_data:
+                ws_sum.merge_cells(f"D{kpi_row}:F{kpi_row}")
+                c_lbl = ws_sum[f"D{kpi_row}"]
+                c_lbl.value = title.upper()
+                c_lbl.font = Font(name="Segoe UI", size=8, bold=True, color="718096")
+                c_lbl.alignment = align_left
+                c_lbl.fill = fill_kpi
+
+                ws_sum.merge_cells(f"D{kpi_row+1}:F{kpi_row+1}")
+                c_val = ws_sum[f"D{kpi_row+1}"]
+                c_val.value = val
+                c_val.font = font_kpi_num
+                c_val.alignment = align_left
+                c_val.fill = fill_kpi
+
+                ws_sum.merge_cells(f"D{kpi_row+2}:F{kpi_row+2}")
+                c_sub = ws_sum[f"D{kpi_row+2}"]
+                c_sub.value = sub
+                c_sub.font = Font(name="Segoe UI", size=7.5, italic=True, color="718096")
+                c_sub.alignment = align_left
+                c_sub.fill = fill_kpi
+
+                for r in range(kpi_row, kpi_row + 3):
+                    for col_l in ["D", "E", "F"]:
+                        ws_sum[f"{col_l}{r}"].border = border_all
+                kpi_row += 4
+
+        # ─── 2. HOJA: MÉTRICAS POR ZONA (FASE 5) ───
+        if "zones" in sections:
+            ws_zones = wb.create_sheet(title="Metricas por Zona")
+            ws_zones.views.sheetView[0].showGridLines = True
+
+            ws_zones.merge_cells("A1:H1")
+            ws_zones["A1"] = "ANÁLISIS DE PERMANENCIA Y OCUPACIÓN ESPACIAL POR ZONA (FASE 5)"
+            ws_zones["A1"].font = font_title
+            ws_zones["A1"].alignment = align_left
+
+            headers_zone = [
+                "Zona Espacial", "Color", "Total Visitas", "Personas Únicas",
+                "Permanencia Media (s)", "Permanencia Máx (s)", "Tasa Ocupación (%)", "Pico Simultáneo"
+            ]
+            for col_i, h in enumerate(headers_zone, start=1):
+                ws_zones.cell(row=3, column=col_i, value=h)
+            style_header_row(ws_zones, 3, len(headers_zone), fill=fill_navy)
+
+            zones_data = self.get_session_zone_metrics(session_id)
+            zones_list = zones_data.get("zones", [])
+
+            for z_i, z in enumerate(zones_list, start=4):
+                row_vals = [
+                    z.get("zone", ""),
+                    z.get("color", ""),
+                    z.get("visits_count", 0),
+                    z.get("unique_persons_count", 0),
+                    z.get("avg_dwell_seconds", 0),
+                    z.get("max_dwell_seconds", 0),
+                    z.get("occupancy_rate_percent", 0),
+                    z.get("peak_occupancy", 0)
+                ]
+                for c_i, val in enumerate(row_vals, start=1):
+                    cell = ws_zones.cell(row=z_i, column=c_i, value=val)
+                    cell.font = font_bold if c_i == 1 else font_normal
+                    cell.alignment = align_left if c_i in (1, 2) else align_right
+                    cell.border = border_all
+                    if z_i % 2 == 0:
+                        cell.fill = fill_zebra
+
+            # Embedded Excel Bar Chart
+            if len(zones_list) > 0:
+                chart_zones = BarChart()
+                chart_zones.type = "col"
+                chart_zones.style = 10
+                chart_zones.title = "Tasa de Ocupación (%) y Visitas por Zona"
+                chart_zones.y_axis.title = "Valor"
+                chart_zones.x_axis.title = "Zonas Espaciales"
+                chart_zones.width = 16
+                chart_zones.height = 10
+
+                data_ref = Reference(ws_zones, min_col=7, min_row=3, max_row=3 + len(zones_list))
+                cats_ref = Reference(ws_zones, min_col=1, min_row=4, max_row=3 + len(zones_list))
+                chart_zones.add_data(data_ref, titles_from_data=True)
+                chart_zones.set_categories(cats_ref)
+                ws_zones.add_chart(chart_zones, "J3")
+
+        # ─── 3. HOJA: RITMOS Y PICOS (FASE 6) ───
+        if "rhythms" in sections or "peaks" in sections:
+            ws_rhy = wb.create_sheet(title="Ritmos y Picos")
+            ws_rhy.views.sheetView[0].showGridLines = True
+
+            ws_rhy.merge_cells("A1:F1")
+            ws_rhy["A1"] = "RITMOS TEMPORALES, CADENCIA DE OLEADAS Y PICOS (FASE 6)"
+            ws_rhy["A1"].font = font_title
+            ws_rhy["A1"].alignment = align_left
+
+            # Classification card
+            if not rhythms_data:
+                rhythms_data = self.get_session_rhythms(session_id, bucket_seconds=5)
+            r_sum = rhythms_data.get("rhythm_summary", {})
+
+            ws_rhy.merge_cells("A3:D3")
+            ws_rhy["A3"] = f"Clasificación: {r_sum.get('classification', 'N/A')}"
+            ws_rhy["A3"].font = font_section
+            ws_rhy["A3"].fill = fill_blue
+            ws_rhy["A3"].alignment = align_left
+
+            rhy_meta = [
+                ("Cadencia Media entre Oleadas", f"{r_sum.get('avg_cadence_seconds', 'N/A')} s"),
+                ("Coeficiente de Variación (CV)", r_sum.get('coefficient_of_variation', 0)),
+                ("Pico Máximo en Oleada", f"{r_sum.get('max_peak_count', 0)} personas"),
+                ("Valle de Quietud Máximo", f"{r_sum.get('longest_lull_seconds', 0)} s"),
+            ]
+            for idx, (label, val) in enumerate(rhy_meta, start=4):
+                c1 = ws_rhy.cell(row=idx, column=1, value=label)
+                c2 = ws_rhy.cell(row=idx, column=2, value=val)
+                c1.font = font_bold; c1.border = border_all
+                c2.font = font_normal; c2.border = border_all; c2.alignment = align_right
+                if idx % 2 == 0:
+                    c1.fill = fill_zebra; c2.fill = fill_zebra
+
+            # Table of Peaks
+            peaks_list = rhythms_data.get("peaks", [])
+            start_peak_row = 10
+            ws_rhy.cell(row=start_peak_row-1, column=1, value="Marca Temporal")
+            ws_rhy.cell(row=start_peak_row-1, column=2, value="Tiempo (s)")
+            ws_rhy.cell(row=start_peak_row-1, column=3, value="Concurrencia Máxima")
+            ws_rhy.cell(row=start_peak_row-1, column=4, value="Zona Dominante")
+            style_header_row(ws_rhy, start_peak_row-1, 4, fill=fill_navy)
+
+            for p_i, p in enumerate(peaks_list, start=start_peak_row):
+                r_vals = [
+                    p.get("time_label", ""),
+                    p.get("t", 0),
+                    p.get("count", 0),
+                    p.get("dominant_zone") or "Área General"
+                ]
+                for c_i, val in enumerate(r_vals, start=1):
+                    cell = ws_rhy.cell(row=p_i, column=c_i, value=val)
+                    cell.font = font_mono if c_i == 1 else font_normal
+                    cell.alignment = align_right if c_i in (2, 3) else align_left
+                    cell.border = border_all
+                    if p_i % 2 == 0:
+                        cell.fill = fill_zebra
+
+            # Embedded Line Chart for Peaks
+            if len(peaks_list) > 1:
+                chart_peaks = LineChart()
+                chart_peaks.title = "Oleadas y Picos de Concurrencia Simultánea"
+                chart_peaks.style = 13
+                chart_peaks.y_axis.title = "Personas Simultáneas"
+                chart_peaks.x_axis.title = "Marca Temporal"
+                chart_peaks.width = 16
+                chart_peaks.height = 10
+
+                data_peaks = Reference(ws_rhy, min_col=3, min_row=start_peak_row-1, max_row=start_peak_row-1 + len(peaks_list))
+                cats_peaks = Reference(ws_rhy, min_col=1, min_row=start_peak_row, max_row=start_peak_row-1 + len(peaks_list))
+                chart_peaks.add_data(data_peaks, titles_from_data=True)
+                chart_peaks.set_categories(cats_peaks)
+                ws_rhy.add_chart(chart_peaks, "F3")
+
+        # ─── 4. HOJA: AGLOMERACIONES Y HOTSPOTS (FASE 7) ───
+        if "crowds" in sections:
+            ws_crw = wb.create_sheet(title="Aglomeraciones")
+            ws_crw.views.sheetView[0].showGridLines = True
+
+            ws_crw.merge_cells("A1:G1")
+            ws_crw["A1"] = "DETECCIÓN DE AGLOMERACIONES Y CUELLOS DE BOTELLA (FASE 7)"
+            ws_crw["A1"].font = font_title
+            ws_crw["A1"].alignment = align_left
+
+            crowd_data = self.get_session_crowd_events(session_id)
+            c_hotspots = crowd_data.get("hotspots", [])
+            c_events = crowd_data.get("events", [])
+
+            # KPI Summary
+            crw_stats = [
+                ("Total Incidentes Detectados", crowd_data.get("total_events", 0)),
+                ("Tiempo en Aglomeración", f"{crowd_data.get('total_crowded_seconds', 0)} s ({crowd_data.get('crowd_time_percent', 0)}%)"),
+                ("Pico Máximo en Racimo", f"{crowd_data.get('max_cluster_size', 0)} personas"),
+            ]
+            for idx, (label, val) in enumerate(crw_stats, start=3):
+                c1 = ws_crw.cell(row=idx, column=1, value=label)
+                c2 = ws_crw.cell(row=idx, column=2, value=val)
+                c1.font = font_bold; c1.border = border_all
+                c2.font = font_normal; c2.border = border_all; c2.alignment = align_right
+                if idx % 2 == 0:
+                    c1.fill = fill_zebra; c2.fill = fill_zebra
+
+            # Hotspots Table
+            ws_crw.cell(row=7, column=1, value="Ranking")
+            ws_crw.cell(row=7, column=2, value="Centroide X")
+            ws_crw.cell(row=7, column=3, value="Centroide Y")
+            ws_crw.cell(row=7, column=4, value="Zona Espacial")
+            ws_crw.cell(row=7, column=5, value="Apariciones")
+            ws_crw.cell(row=7, column=6, value="Duración Acumulada (s)")
+            style_header_row(ws_crw, 7, 6, fill=fill_navy)
+
+            for hs_i, hs in enumerate(c_hotspots, start=8):
+                hs_vals = [
+                    f"#{hs_i-7}", hs.get("cx", 0), hs.get("cy", 0),
+                    hs.get("zone") or "Área Abierta",
+                    hs.get("event_count", 0),
+                    hs.get("total_duration", 0)
+                ]
+                for c_i, val in enumerate(hs_vals, start=1):
+                    cell = ws_crw.cell(row=hs_i, column=c_i, value=val)
+                    cell.font = font_normal
+                    cell.alignment = align_right if c_i in (2, 3, 5, 6) else align_center
+                    cell.border = border_all
+                    if hs_i % 2 == 0:
+                        cell.fill = fill_zebra
+
+            # Events Timeline Table
+            start_ev_row = 9 + len(c_hotspots)
+            ws_crw.cell(row=start_ev_row-1, column=1, value="ID Evento")
+            ws_crw.cell(row=start_ev_row-1, column=2, value="Inicio")
+            ws_crw.cell(row=start_ev_row-1, column=3, value="Fin")
+            ws_crw.cell(row=start_ev_row-1, column=4, value="Duración (s)")
+            ws_crw.cell(row=start_ev_row-1, column=5, value="Personas")
+            ws_crw.cell(row=start_ev_row-1, column=6, value="Severidad")
+            ws_crw.cell(row=start_ev_row-1, column=7, value="Zona")
+            style_header_row(ws_crw, start_ev_row-1, 7, fill=fill_blue)
+
+            for ev_i, ev in enumerate(c_events, start=start_ev_row):
+                ev_vals = [
+                    ev.get("id", ""),
+                    ev.get("start_time_label", ""),
+                    ev.get("end_time_label", ""),
+                    ev.get("duration_seconds", 0),
+                    ev.get("peak_cluster_size", 0),
+                    ev.get("severity", ""),
+                    ev.get("dominant_zone") or "Área General"
+                ]
+                for c_i, val in enumerate(ev_vals, start=1):
+                    cell = ws_crw.cell(row=ev_i, column=c_i, value=val)
+                    cell.font = font_mono if c_i in (1, 2, 3) else font_normal
+                    cell.alignment = align_right if c_i in (4, 5) else align_left
+                    cell.border = border_all
+                    if ev_i % 2 == 0:
+                        cell.fill = fill_zebra
+
+        # ─── 5. HOJA: INTERACCIONES SOCIALES (FASE 9) ───
+        if "interactions" in sections:
+            ws_soc = wb.create_sheet(title="Proximidad Social")
+            ws_soc.views.sheetView[0].showGridLines = True
+
+            ws_soc.merge_cells("A1:G1")
+            ws_soc["A1"] = "INTERACCIONES INTERPERSONALES Y PROXIMIDAD SOCIAL (FASE 9)"
+            ws_soc["A1"].font = font_title
+            ws_soc["A1"].alignment = align_left
+
+            inter_data = self.get_session_interactions(session_id)
+            i_list = inter_data.get("interactions", [])
+
+            soc_stats = [
+                ("Ratio de Sociabilidad Espacial", f"{inter_data.get('social_ratio_percent', 0)} %"),
+                ("Total Interacciones Registradas", inter_data.get("total_interactions_count", 0)),
+                ("Personas Únicas Participantes", inter_data.get("unique_interacting_persons", 0)),
+                ("Duración Media de Interacción", f"{inter_data.get('avg_interaction_duration_seconds', 0)} s"),
+            ]
+            for idx, (label, val) in enumerate(soc_stats, start=3):
+                c1 = ws_soc.cell(row=idx, column=1, value=label)
+                c2 = ws_soc.cell(row=idx, column=2, value=val)
+                c1.font = font_bold; c1.border = border_all
+                c2.font = font_normal; c2.border = border_all; c2.alignment = align_right
+                if idx % 2 == 0:
+                    c1.fill = fill_zebra; c2.fill = fill_zebra
+
+            ws_soc.cell(row=8, column=1, value="Pareja")
+            ws_soc.cell(row=8, column=2, value="Tipo de Interacción")
+            ws_soc.cell(row=8, column=3, value="Inicio")
+            ws_soc.cell(row=8, column=4, value="Fin")
+            ws_soc.cell(row=8, column=5, value="Duración (s)")
+            ws_soc.cell(row=8, column=6, value="Distancia Media (m)")
+            ws_soc.cell(row=8, column=7, value="Zona")
+            style_header_row(ws_soc, 8, 7, fill=fill_navy)
+
+            for it_i, it in enumerate(i_list, start=9):
+                it_vals = [
+                    it.get("label", ""),
+                    it.get("interaction_type", ""),
+                    it.get("start_time_label", ""),
+                    it.get("end_time_label", ""),
+                    it.get("duration_seconds", 0),
+                    it.get("avg_distance", 0),
+                    it.get("zone") or "Área General"
+                ]
+                for c_i, val in enumerate(it_vals, start=1):
+                    cell = ws_soc.cell(row=it_i, column=c_i, value=val)
+                    cell.font = font_mono if c_i in (1, 3, 4) else font_normal
+                    cell.alignment = align_right if c_i in (5, 6) else align_left
+                    cell.border = border_all
+                    if it_i % 2 == 0:
+                        cell.fill = fill_zebra
+
+        # ─── AUTO-FIT COLUMN WIDTHS FOR ALL SHEETS ───
+        for ws in wb.worksheets:
+            for col in ws.columns:
+                max_len = 0
+                col_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    if cell.value:
+                        # Avoid calculating width from chart or large title banners
+                        val_str = str(cell.value)
+                        if "\n" not in val_str and len(val_str) < 60:
+                            max_len = max(max_len, len(val_str))
+                ws.column_dimensions[col_letter].width = min(max(max_len + 4, 12), 40)
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        return buf.getvalue()
+
 
 # Global database singleton
 db = Database()
