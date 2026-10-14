@@ -19,6 +19,9 @@ class WebSocketManager {
         this.onControl = null;   // Control messages
         this.onError = null;
 
+        // Offline / Pending Control Message Queue
+        this.messageQueue = [];
+
         // Stats
         this.messagesSent = 0;
         this.messagesReceived = 0;
@@ -53,6 +56,17 @@ class WebSocketManager {
                 this.reconnectAttempts = 0;
                 console.log('[WS] Connected');
                 this._updateStatus('connected');
+
+                // Flush any queued control messages (e.g. session_start, update_zones)
+                while (this.messageQueue.length > 0) {
+                    const queuedMsg = this.messageQueue.shift();
+                    try {
+                        console.log('[WS] Sending queued message:', queuedMsg.action);
+                        this.ws.send(JSON.stringify(queuedMsg));
+                    } catch (qe) {
+                        console.warn('[WS] Error sending queued message:', qe);
+                    }
+                }
 
                 if (this.onConnect) this.onConnect();
             };
@@ -102,30 +116,58 @@ class WebSocketManager {
     }
 
     /**
+     * Get pending bytes in WebSocket buffer.
+     */
+    getBufferedAmount() {
+        return (this.ws && this.ws.readyState === WebSocket.OPEN) ? this.ws.bufferedAmount : 0;
+    }
+
+    /**
      * Send a binary frame to the server.
+     * Prevents bufferbloat: skips frame if network uplink is already saturated (>64KB buffered).
      */
     sendFrame(blob) {
-        if (!this.isConnected || !this.ws) return false;
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return false;
+        
+        // Skip frame if previous data is still queuing in network buffer
+        if (this.ws.bufferedAmount > 65536) {
+            return false;
+        }
 
         blob.arrayBuffer().then(buffer => {
             if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-                this.ws.send(buffer);
-                this.messagesSent++;
-                this.bytesSent += buffer.byteLength;
+                try {
+                    this.ws.send(buffer);
+                    this.messagesSent++;
+                    this.bytesSent += buffer.byteLength;
+                } catch (e) {
+                    console.warn('[WS] Error sending binary frame:', e);
+                }
             }
-        });
+        }).catch(err => console.warn('[WS] arrayBuffer conversion error:', err));
 
         return true;
     }
 
     /**
      * Send a control message (JSON text).
+     * If socket is not yet open, saves to messageQueue so it is not lost.
      */
     sendControl(data) {
-        if (!this.isConnected || !this.ws) return false;
+        if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.log('[WS] Socket not open, queuing message:', data.action);
+            this.messageQueue.push(data);
+            return false;
+        }
 
-        this.ws.send(JSON.stringify(data));
-        return true;
+        try {
+            this.ws.send(JSON.stringify(data));
+            return true;
+        } catch (e) {
+            console.warn('[WS] Error sending control, queuing:', e);
+            this.messageQueue.push(data);
+            return false;
+        }
     }
 
     /**

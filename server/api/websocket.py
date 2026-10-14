@@ -65,6 +65,9 @@ async def vision_websocket(websocket: WebSocket):
         while True:
             message = await websocket.receive()
 
+            if message.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect(message.get("code", 1000))
+
             if "bytes" in message and message["bytes"]:
                 # Binary data = video frame
                 frame_bytes = message["bytes"]

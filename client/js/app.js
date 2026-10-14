@@ -283,11 +283,15 @@
         alert(message);
     };
 
+    let isSendingFrame = false;
     camera.onFrame = (blob) => {
         // Stream frames whenever WebSocket is connected for live automatic labeling
-        if (ws.isConnected) {
-            ws.sendFrame(blob);
-        }
+        if (!ws.isConnected || isSendingFrame) return;
+        if (ws.getBufferedAmount && ws.getBufferedAmount() > 65536) return;
+
+        isSendingFrame = true;
+        ws.sendFrame(blob);
+        setTimeout(() => { isSendingFrame = false; }, 35);
     };
 
     // ═══════════════════════════════════════════════════════
@@ -505,9 +509,12 @@
         try {
             const videoBlob = await camera.stopVideoRecording();
             if (videoBlob && videoBlob.size > 0 && stoppedSessionId) {
+                const isMp4 = videoBlob.type && videoBlob.type.includes('mp4');
+                const ext = isMp4 ? 'mp4' : 'webm';
+                const filename = `${stoppedSessionId}.${ext}`;
                 const formData = new FormData();
-                formData.append('video', videoBlob, `${stoppedSessionId}.webm`);
-                formData.append('file', videoBlob, `${stoppedSessionId}.webm`);
+                formData.append('video', videoBlob, filename);
+                formData.append('file', videoBlob, filename);
                 const upRes = await fetch(`/api/sessions/${stoppedSessionId}/video`, {
                     method: 'POST',
                     body: formData,
@@ -516,7 +523,7 @@
                     const data = await upRes.json();
                     console.log('[Session] Video saved to server:', data);
                     const mbSize = (videoBlob.size / 1024 / 1024).toFixed(2);
-                    addEvent('Video guardado', `${mbSize} MB archivados para reproducción`);
+                    addEvent('Video guardado', `${mbSize} MB archivados para reproducción (${ext.toUpperCase()})`);
                     refreshHistoryCount();
                 } else {
                     console.warn('[Session] Video upload returned non-200:', upRes.status);

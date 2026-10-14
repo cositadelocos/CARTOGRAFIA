@@ -110,14 +110,22 @@ async def upload_session_video(session_id: str, request: Request):
     """Upload and save the video recording for a session."""
     session = db.get_session(session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+        # Auto-create session record if WebSocket control was queued or delayed
+        db.create_session(session_id, "Observación Espacial", time.time())
 
     form = await request.form()
     file_obj = form.get("video") or form.get("file")
     if not file_obj or not hasattr(file_obj, "read"):
         raise HTTPException(status_code=400, detail="Archivo de video no encontrado en el formulario")
 
-    video_filename = f"{session_id}.webm"
+    # Detect proper extension: iOS Safari sends mp4, Chrome/Firefox send webm
+    filename_attr = getattr(file_obj, "filename", "") or ""
+    content_type_attr = getattr(file_obj, "content_type", "") or ""
+    is_mp4 = "mp4" in filename_attr.lower() or "mp4" in content_type_attr.lower()
+    ext = "mp4" if is_mp4 else "webm"
+
+    video_filename = f"{session_id}.{ext}"
+    VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
     video_path = VIDEOS_DIR / video_filename
 
     content = await file_obj.read()
@@ -125,6 +133,8 @@ async def upload_session_video(session_id: str, request: Request):
         f.write(content)
 
     db.set_session_video(session_id, video_filename)
+    print(f"[API] Video saved for session {session_id}: {video_filename} ({len(content)} bytes)")
+
     return {
         "status": "saved",
         "session_id": session_id,
@@ -137,18 +147,29 @@ async def upload_session_video(session_id: str, request: Request):
 async def get_session_video(session_id: str):
     """Stream recorded session video for interactive timeline playback."""
     session = db.get_session(session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+    video_filename = session.get("video_path") if session else None
 
-    video_filename = session.get("video_path") or f"{session_id}.webm"
-    video_path = VIDEOS_DIR / video_filename
+    # Check candidates
+    possible_paths = []
+    if video_filename:
+        possible_paths.append(VIDEOS_DIR / video_filename)
+    possible_paths.append(VIDEOS_DIR / f"{session_id}.mp4")
+    possible_paths.append(VIDEOS_DIR / f"{session_id}.webm")
 
-    if not video_path.exists():
+    target_path = None
+    for p in possible_paths:
+        if p.exists() and p.stat().st_size > 0:
+            target_path = p
+            break
+
+    if not target_path:
         raise HTTPException(status_code=404, detail="Video no disponible para esta sesión")
 
+    media_type = "video/mp4" if target_path.suffix.lower() == ".mp4" else "video/webm"
+
     return FileResponse(
-        path=str(video_path),
-        media_type="video/webm",
-        filename=video_filename
+        path=str(target_path),
+        media_type=media_type,
+        filename=target_path.name
     )
 
