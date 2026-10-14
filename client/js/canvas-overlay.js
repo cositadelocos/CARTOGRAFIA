@@ -490,10 +490,8 @@ class CanvasOverlay {
 
             this.ctx.save();
             this.ctx.strokeStyle = color;
-            this.ctx.lineWidth = 2;
+            this.ctx.lineWidth = 1.5;
             this.ctx.lineCap = 'round';
-            this.ctx.shadowColor = color;
-            this.ctx.shadowBlur = 6;
 
             // Top-left
             this.ctx.beginPath();
@@ -528,8 +526,6 @@ class CanvasOverlay {
 
         // Foot Anchor & Spatial Coordinate Reticle
         this.ctx.save();
-        this.ctx.shadowColor = color;
-        this.ctx.shadowBlur = 8;
 
         // Radar ground ellipse
         this.ctx.beginPath();

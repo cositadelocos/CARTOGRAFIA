@@ -359,15 +359,12 @@ class HeatmapRenderer {
                 screenPts.push(sp);
             }
 
-            // Glow line
+            // Trajectory path line
             this.ctx.strokeStyle = color;
-            this.ctx.lineWidth = 3;
+            this.ctx.lineWidth = 2;
             this.ctx.lineCap = 'round';
             this.ctx.lineJoin = 'round';
-            this.ctx.shadowColor = color;
-            this.ctx.shadowBlur = 8;
             this.ctx.stroke();
-            this.ctx.shadowBlur = 0;
 
             // 2. Draw directional arrows along the path
             const arrowSpacing = 50; // pixels between arrows

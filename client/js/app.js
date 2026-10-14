@@ -630,12 +630,10 @@
 
         // Draw Line
         ctx.beginPath();
-        ctx.strokeStyle = '#0a84ff';
-        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = '#0071e3';
+        ctx.lineWidth = 1.8;
         ctx.lineJoin = 'round';
         ctx.lineCap = 'round';
-        ctx.shadowColor = '#0a84ff';
-        ctx.shadowBlur = 6;
 
         for (let i = 0; i < data.length; i++) {
             const x = padding.left + (i / (data.length - 1)) * chartW;
@@ -644,7 +642,6 @@
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
-        ctx.shadowBlur = 0;
 
         // Area Gradient
         ctx.lineTo(padding.left + chartW, padding.top + chartH);
@@ -1370,12 +1367,10 @@
         }
         ctx.stroke();
 
-        // 7. Curve: Total Count (solid purple line with glow)
+        // 7. Curve: Total Count (solid purple line)
         ctx.beginPath();
         ctx.strokeStyle = '#bf5af2';
-        ctx.lineWidth = 2.5;
-        ctx.shadowColor = 'rgba(191, 90, 242, 0.5)';
-        ctx.shadowBlur = 6;
+        ctx.lineWidth = 2;
         for (let i = 0; i < nPoints; i++) {
             const x = getX(timeline[i].t);
             const y = getY(timeline[i].total_count);
@@ -1383,7 +1378,6 @@
             else ctx.lineTo(x, y);
         }
         ctx.stroke();
-        ctx.shadowBlur = 0;
 
         // 8. Peaks: Highlight Markers & Badges
         if (peaks && peaks.length > 0) {
