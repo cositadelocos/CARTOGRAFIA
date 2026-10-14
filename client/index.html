@@ -419,10 +419,25 @@
     <!-- SESSIONS HISTORY MODAL (PHASE 2)                        -->
     <!-- ═══════════════════════════════════════════════════════ -->
     <div id="modal-history" class="modal-overlay">
-        <div class="modal-box">
+        <div class="modal-box modal-box-lg">
             <div class="modal-header">
                 <h3><span>📂</span> Historial de Sesiones Grabadas (SQLite)</h3>
                 <button id="btn-close-history" class="btn-close-modal">✕</button>
+            </div>
+            <div class="history-toolbar">
+                <div class="history-toolbar-left">
+                    <button id="btn-compare-selected" class="btn btn-xs btn-primary" disabled title="Selecciona al menos 2 sesiones con las casillas para comparar">
+                        <span class="btn-icon">⚖️</span>
+                        <span>Comparar Seleccionadas (0)</span>
+                    </button>
+                    <button id="btn-open-time-slots" class="btn btn-xs btn-secondary" title="Ver análisis histórico por franjas horarias y días">
+                        <span class="btn-icon">📅</span>
+                        <span>Franjas Horarias Históricas</span>
+                    </button>
+                </div>
+                <div class="history-toolbar-right">
+                    <span id="history-selected-hint" class="text-subtle text-xs">Marca casillas para contrastar</span>
+                </div>
             </div>
             <div id="history-sessions-container" class="modal-body">
                 <div class="persons-empty">Cargando sesiones...</div>
@@ -504,6 +519,51 @@
             </div>
             <div id="rhythms-container" class="modal-body">
                 <div class="persons-empty">Cargando análisis de ritmos...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- CROWD EVENTS & BOTTLENECKS MODAL (PHASE 7)              -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="modal-crowd-alerts" class="modal-overlay">
+        <div class="modal-box modal-box-lg">
+            <div class="modal-header">
+                <h3><span>🚨</span> Detección de Aglomeraciones y Cuellos de Botella (Fase 7)</h3>
+                <button id="btn-close-crowd-alerts" class="btn-close-modal">✕</button>
+            </div>
+            <div id="crowd-alerts-container" class="modal-body">
+                <div class="persons-empty">Cargando análisis de aglomeraciones...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SESSIONS COMPARATIVE & TIME SLOTS MODAL (PHASE 8)       -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="modal-compare" class="modal-overlay">
+        <div class="modal-box modal-box-xl">
+            <div class="modal-header">
+                <h3><span>⚖️</span> Comparativa Temporal y Franjas Horarias (Fase 8)</h3>
+                <button id="btn-close-compare" class="btn-close-modal">✕</button>
+            </div>
+            <div id="compare-container" class="modal-body">
+                <div class="persons-empty">Cargando comparativa...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <!-- SOCIAL INTERACTIONS & PROXIMITY MODAL (PHASE 9)         -->
+    <!-- ═══════════════════════════════════════════════════════ -->
+    <div id="modal-interactions" class="modal-overlay">
+        <div class="modal-box modal-box-lg">
+            <div class="modal-header">
+                <h3><span>👥</span> Interacciones Interpersonales y Proximidad Social (Fase 9)</h3>
+                <button id="btn-close-interactions" class="btn-close-modal">✕</button>
+            </div>
+            <div id="interactions-container" class="modal-body">
+                <div class="persons-empty">Cargando análisis de interacciones y proximidad...</div>
             </div>
         </div>
     </div>

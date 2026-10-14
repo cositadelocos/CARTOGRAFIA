@@ -32,6 +32,9 @@
 
         // Timer
         timerInterval: null,
+
+        // Multi-Session Comparison Selection (Phase 8)
+        selectedSessionIds: new Set(),
     };
 
     // ─── Components ─────────────────────────────────────
@@ -156,6 +159,20 @@
         rhythmsContainer: document.getElementById('rhythms-container'),
         replayModeBadge: document.getElementById('replay-mode-badge'),
         btnExitReplayFloating: document.getElementById('btn-exit-replay-floating'),
+
+        // Phases 7, 8 & 9 Elements
+        btnCompareSelected: document.getElementById('btn-compare-selected'),
+        btnOpenTimeSlots: document.getElementById('btn-open-time-slots'),
+        historySelectedHint: document.getElementById('history-selected-hint'),
+        modalCrowdAlerts: document.getElementById('modal-crowd-alerts'),
+        btnCloseCrowdAlerts: document.getElementById('btn-close-crowd-alerts'),
+        crowdAlertsContainer: document.getElementById('crowd-alerts-container'),
+        modalCompare: document.getElementById('modal-compare'),
+        btnCloseCompare: document.getElementById('btn-close-compare'),
+        compareContainer: document.getElementById('compare-container'),
+        modalInteractions: document.getElementById('modal-interactions'),
+        btnCloseInteractions: document.getElementById('btn-close-interactions'),
+        interactionsContainer: document.getElementById('interactions-container'),
     };
 
     const chartCtx = dom.activityChart.getContext('2d');
@@ -889,17 +906,24 @@
                 const dateStr = s.started_at ? new Date(s.started_at * 1000).toLocaleString() : s.created_at;
                 const durMin = (s.duration_seconds / 60).toFixed(1);
                 const hasVideo = !!s.video_path;
+                const isSelected = state.selectedSessionIds.has(s.id);
                 const videoBadge = hasVideo 
                     ? '<span class="tag tag-sm" style="background:rgba(48,209,88,0.22); color:#30d158; border:0.5px solid rgba(48,209,88,0.45); font-size:0.7rem; padding:2px 8px; border-radius:10px;">🎬 Video Grabado</span>'
                     : '';
 
                 html += `
-                    <div class="session-card">
+                    <div class="session-card ${isSelected ? 'selected' : ''}" id="session-card-${s.id}">
                         <div class="session-card-header">
-                            <div>
-                                <span class="session-title">${s.name}</span>
-                                <span class="session-date"> • ID: ${s.id}</span>
-                                ${videoBadge}
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <label class="session-checkbox-label" title="Marcar para comparar con otras sesiones">
+                                    <input type="checkbox" class="session-select-checkbox" data-session-id="${s.id}" ${isSelected ? 'checked' : ''} onchange="toggleSessionSelection('${s.id}', this.checked)">
+                                    <span class="custom-checkbox"></span>
+                                </label>
+                                <div>
+                                    <span class="session-title">${s.name}</span>
+                                    <span class="session-date"> • ID: ${s.id}</span>
+                                    ${videoBadge}
+                                </div>
                             </div>
                             <span class="session-date">${dateStr}</span>
                         </div>
@@ -926,16 +950,22 @@
                                 ${hasVideo ? '🎬 Reproducir Video & Heatmap' : '🔥 Ver Heatmap'}
                             </button>
                             <button class="btn btn-xs btn-secondary" onclick="viewSessionZoneMetrics('${s.id}')" title="Consultar permanencias, picos de ocupación y flujo por zona">
-                                📊 Métricas de Zona
+                                📊 Zonas
                             </button>
                             <button class="btn btn-xs btn-session-rhythms" onclick="viewSessionRhythms('${s.id}')" title="Analizar cadencia de oleadas, picos y ritmo espacial">
-                                ⏱️ Ritmos Espaciales
+                                ⏱️ Ritmos
                             </button>
-                            <button class="btn btn-xs btn-secondary" onclick="downloadSessionPoints('${s.id}')">
-                                📥 Exportar JSON
+                            <button class="btn btn-xs btn-session-crowd" onclick="viewSessionCrowdAlerts('${s.id}')" title="Detección de aglomeraciones y alertas espaciales (Fase 7)">
+                                🚨 Aglomeraciones
                             </button>
-                            <button class="btn btn-xs btn-danger" onclick="deleteSession('${s.id}')">
-                                🗑️ Eliminar
+                            <button class="btn btn-xs btn-session-social" onclick="viewSessionInteractions('${s.id}')" title="Detección de interacciones y proximidad social (Fase 9)">
+                                👥 Interacciones
+                            </button>
+                            <button class="btn btn-xs btn-secondary" onclick="downloadSessionPoints('${s.id}')" title="Descargar coordenadas brutas">
+                                📥 JSON
+                            </button>
+                            <button class="btn btn-xs btn-danger" onclick="deleteSession('${s.id}')" title="Eliminar sesión">
+                                🗑️
                             </button>
                         </div>
                     </div>
@@ -953,6 +983,33 @@
     function closeHistoryModal() {
         dom.modalHistory.classList.remove('active');
     }
+
+    window.toggleSessionSelection = (sessionId, isChecked) => {
+        if (isChecked) {
+            state.selectedSessionIds.add(sessionId);
+        } else {
+            state.selectedSessionIds.delete(sessionId);
+        }
+
+        const card = document.getElementById(`session-card-${sessionId}`);
+        if (card) {
+            card.classList.toggle('selected', isChecked);
+        }
+
+        const count = state.selectedSessionIds.size;
+        if (dom.btnCompareSelected) {
+            dom.btnCompareSelected.disabled = count < 2;
+            const spanText = dom.btnCompareSelected.querySelector('span:last-child');
+            if (spanText) {
+                spanText.textContent = `Comparar Seleccionadas (${count})`;
+            }
+        }
+        if (dom.historySelectedHint) {
+            dom.historySelectedHint.textContent = count >= 2
+                ? `${count} sesiones listas para contrastar`
+                : count === 1 ? 'Selecciona al menos 1 más' : 'Marca casillas para contrastar';
+        }
+    };
 
     function formatTime(sec) {
         sec = Math.max(0, Math.floor(sec || 0));
@@ -1596,6 +1653,526 @@
         }
     };
 
+    // ═══════════════════════════════════════════════════════
+    // PHASE 7: DETECCIÓN DE AGLOMERACIONES Y ALERTAS ESPACIALES
+    // ═══════════════════════════════════════════════════════
+
+    window.viewSessionCrowdAlerts = async (sessionId, clusterRadius = 0.16, minClusterSize = 3) => {
+        try {
+            dom.modalCrowdAlerts.classList.add('active');
+            dom.crowdAlertsContainer.innerHTML = '<div class="persons-empty">Analizando proximidad euclidiana, aglomeraciones y cuellos de botella...</div>';
+
+            const res = await fetch(`/api/analytics/sessions/${sessionId}/crowd-events?cluster_radius=${clusterRadius}&min_cluster_size=${minClusterSize}`);
+            if (!res.ok) throw new Error('No se pudo obtener el análisis de aglomeraciones');
+            const data = await res.json();
+            const session = data.session || {};
+            const crowd = data.crowd_analytics || {};
+            const events = crowd.events || [];
+            const hotspots = crowd.hotspots || [];
+
+            const durMin = ((crowd.duration_seconds || session.duration_seconds || 1) / 60).toFixed(1);
+            const activeRad = crowd.cluster_radius || clusterRadius;
+            const activeSize = crowd.min_cluster_size || minClusterSize;
+
+            let html = `
+                <div class="rhythm-overview-bar">
+                    <div>
+                        <div class="session-name">🚨 ${session.name || sessionId}</div>
+                        <div class="session-duration">ID: ${sessionId} • Duración: ${durMin} min</div>
+                    </div>
+                    <div class="crowd-params-controls">
+                        <div class="crowd-param-group">
+                            <span class="crowd-param-label">Radio:</span>
+                            <button type="button" class="btn-crowd-param ${Math.abs(activeRad - 0.10) < 0.02 ? 'active' : ''}" data-param="radius" data-val="0.10">0.10m</button>
+                            <button type="button" class="btn-crowd-param ${Math.abs(activeRad - 0.16) < 0.02 ? 'active' : ''}" data-param="radius" data-val="0.16">0.16m</button>
+                            <button type="button" class="btn-crowd-param ${Math.abs(activeRad - 0.25) < 0.02 ? 'active' : ''}" data-param="radius" data-val="0.25">0.25m</button>
+                        </div>
+                        <div class="crowd-param-group">
+                            <span class="crowd-param-label">Mín. Grupo:</span>
+                            <button type="button" class="btn-crowd-param ${activeSize === 2 ? 'active' : ''}" data-param="size" data-val="2">2</button>
+                            <button type="button" class="btn-crowd-param ${activeSize === 3 ? 'active' : ''}" data-param="size" data-val="3">3</button>
+                            <button type="button" class="btn-crowd-param ${activeSize === 5 ? 'active' : ''}" data-param="size" data-val="5">5</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rhythm-kpis-grid">
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Incidentes de Aglomeración</span>
+                        <div class="rhythm-kpi-value" style="color: ${events.length > 0 ? '#ff9f0a' : '#30d158'};">
+                            ${crowd.total_events || 0}
+                        </div>
+                        <span class="rhythm-kpi-sub">Episodios continuados detectados</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Tiempo en Aglomeración</span>
+                        <div class="rhythm-kpi-value">
+                            ${crowd.total_crowded_seconds || 0}<span class="rhythm-kpi-unit">s</span>
+                        </div>
+                        <span class="rhythm-kpi-sub">${crowd.crowd_time_percent || 0}% de la observación</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Pico Congestión Local</span>
+                        <div class="rhythm-kpi-value" style="color: ${(crowd.max_cluster_size || 0) >= 5 ? '#ff453a' : '#64d2ff'};">
+                            ${crowd.max_cluster_size || 0}<span class="rhythm-kpi-unit">pers</span>
+                        </div>
+                        <span class="rhythm-kpi-sub">En racimo simultáneo</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Cuellos de Botella</span>
+                        <div class="rhythm-kpi-value">${hotspots.length}</div>
+                        <span class="rhythm-kpi-sub">Focos espaciales recurrentes</span>
+                    </div>
+                </div>
+            `;
+
+            // Bottlenecks / Hotspots section
+            if (hotspots.length > 0) {
+                html += `
+                    <div class="rhythm-zone-sync-card">
+                        <div class="rhythm-zone-sync-title">
+                            <span>📍</span>
+                            <span>Puntos Críticos y Cuellos de Botella Espaciales Recurrentes</span>
+                        </div>
+                        <div class="hotspots-grid">
+                `;
+                hotspots.forEach((hs, idx) => {
+                    const zoneTag = hs.zone ? `<span class="tag tag-sm" style="background:rgba(10,132,255,0.2); color:#64d2ff;">${hs.zone}</span>` : '<span class="text-subtle text-xs">Zona Abierta</span>';
+                    html += `
+                        <div class="hotspot-card">
+                            <div class="hotspot-header">
+                                <span class="hotspot-rank">#${idx + 1}</span>
+                                <span class="hotspot-coords">Centroide: (${hs.cx}, ${hs.cy})</span>
+                                ${zoneTag}
+                            </div>
+                            <div class="hotspot-stat-row">
+                                <span>Apariciones:</span>
+                                <strong>${hs.event_count} ${hs.event_count === 1 ? 'evento' : 'eventos'}</strong>
+                            </div>
+                            <div class="hotspot-stat-row">
+                                <span>Permanencia en congestión:</span>
+                                <strong>${hs.total_duration}s acumulados</strong>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Timeline of crowd events
+            html += `
+                <div class="crowd-timeline-card">
+                    <div class="rhythm-chart-header">
+                        <div class="rhythm-chart-title">
+                            <span>📋</span>
+                            <span>Registro Cronológico de Aglomeraciones y Congestión</span>
+                        </div>
+                        <span class="text-subtle text-xs">${events.length} episodios registrados</span>
+                    </div>
+            `;
+
+            if (events.length === 0) {
+                html += `
+                    <div class="persons-empty" style="padding:28px 16px;">
+                        ✨ No se presentaron eventos de aglomeración ni cuellos de botella bajo los parámetros actuales (Radio: ${activeRad}m, Mín: ${activeSize} personas).
+                    </div>
+                `;
+            } else {
+                html += '<div class="crowd-events-list">';
+                events.forEach(ev => {
+                    html += `
+                        <div class="crowd-event-row" style="border-left: 3px solid ${ev.severity_color};">
+                            <div class="crowd-event-left">
+                                <span class="severity-pill" style="background:${ev.severity_color}22; color:${ev.severity_color}; border:0.5px solid ${ev.severity_color}66;">
+                                    ${ev.severity}
+                                </span>
+                                <div class="crowd-event-times">
+                                    <strong class="font-mono">${ev.start_time_label} → ${ev.end_time_label}</strong>
+                                    <span class="text-subtle text-xs">(${ev.duration_seconds}s)</span>
+                                </div>
+                            </div>
+                            <div class="crowd-event-center">
+                                <span class="crowd-event-peak"><strong>${ev.peak_cluster_size}</strong> personas agrupadas</span>
+                                <span class="text-subtle text-xs">Centroide: (${ev.centroid_x}, ${ev.centroid_y})</span>
+                            </div>
+                            <div class="crowd-event-right">
+                                ${ev.dominant_zone ? `<span class="tag tag-sm" style="background:rgba(255,255,255,0.06); color:var(--text-primary); border:0.5px solid rgba(255,255,255,0.12);">${ev.dominant_zone}</span>` : '<span class="text-subtle text-xs">Sin zona asignada</span>'}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            html += '</div>';
+
+            dom.crowdAlertsContainer.innerHTML = html;
+
+            // Bind param buttons
+            const pBtns = dom.crowdAlertsContainer.querySelectorAll('.btn-crowd-param');
+            pBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const param = btn.getAttribute('data-param');
+                    const val = parseFloat(btn.getAttribute('data-val'));
+                    if (param === 'radius') {
+                        window.viewSessionCrowdAlerts(sessionId, val, activeSize);
+                    } else {
+                        window.viewSessionCrowdAlerts(sessionId, activeRad, parseInt(val, 10));
+                    }
+                });
+            });
+
+        } catch (e) {
+            console.error('[Crowd] Error:', e);
+            dom.crowdAlertsContainer.innerHTML = `<div class="persons-empty">Error al analizar aglomeraciones: ${e.message}</div>`;
+        }
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // PHASE 8: COMPARATIVA MULTISESIÓN Y FRANJAS HORARIAS
+    // ═══════════════════════════════════════════════════════
+
+    window.openCompareModal = async (sessionIds = null) => {
+        try {
+            const ids = sessionIds || Array.from(state.selectedSessionIds);
+            if (!ids || ids.length < 2) {
+                alert('Selecciona al menos 2 sesiones en el historial para realizar la comparativa.');
+                return;
+            }
+
+            dom.modalCompare.classList.add('active');
+            dom.compareContainer.innerHTML = '<div class="persons-empty">Generando matriz comparativa entre sesiones seleccionadas...</div>';
+
+            const res = await fetch('/api/analytics/compare', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_ids: ids })
+            });
+
+            if (!res.ok) throw new Error('Error al comparar sesiones seleccionadas');
+            const data = await res.json();
+            const list = data.sessions || [];
+            const hi = data.summary_highlights || {};
+
+            let html = `
+                <div class="rhythm-overview-bar">
+                    <div>
+                        <div class="session-name">⚖️ Comparativa de ${list.length} Sesiones de Observación</div>
+                        <div class="session-duration">Contraste multidimensional de densidad, duración, ritmos espaciales y flujos</div>
+                    </div>
+                    <button type="button" class="btn btn-xs btn-secondary" onclick="openTimeSlotsModal()">
+                        <span>📅</span> Ver Franjas Horarias Históricas
+                    </button>
+                </div>
+
+                <div class="rhythm-kpis-grid">
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Mayor Volumen de Afluencia</span>
+                        <div class="rhythm-kpi-value">${hi.highest_volume_count || 0}<span class="rhythm-kpi-unit">pers</span></div>
+                        <span class="rhythm-kpi-sub">${hi.highest_volume_session || 'N/A'}</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Mayor Pico Simultáneo</span>
+                        <div class="rhythm-kpi-value">${hi.highest_concurrent_count || 0}<span class="rhythm-kpi-unit">pers</span></div>
+                        <span class="rhythm-kpi-sub">${hi.highest_concurrent_session || 'N/A'}</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Sesión más Prolongada</span>
+                        <div class="rhythm-kpi-value">${hi.longest_duration || 0}<span class="rhythm-kpi-unit">s</span></div>
+                        <span class="rhythm-kpi-sub">${hi.longest_session || 'N/A'}</span>
+                    </div>
+                </div>
+
+                <div class="compare-table-card">
+                    <div class="compare-table-wrap">
+                        <table class="compare-table">
+                            <thead>
+                                <tr>
+                                    <th class="sticky-col">Métrica / Variable</th>
+                                    ${list.map(item => `<th>${item.session.name || item.session.id}<br><span class="table-subdate">${item.session.started_at ? new Date(item.session.started_at * 1000).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : ''}</span></th>`).join('')}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="sticky-col font-medium">Duración Observada</td>
+                                    ${list.map(item => `<td>${(item.session.duration_seconds / 60).toFixed(1)} min</td>`).join('')}
+                                </tr>
+                                <tr>
+                                    <td class="sticky-col font-medium">Volumen Total (Cuerpos)</td>
+                                    ${list.map(item => `<td class="font-bold text-accent">${item.session.total_persons}</td>`).join('')}
+                                </tr>
+                                <tr>
+                                    <td class="sticky-col font-medium">Pico Simultáneo Máximo</td>
+                                    ${list.map(item => `<td><strong>${item.session.max_concurrent}</strong> personas</td>`).join('')}
+                                </tr>
+                                <tr>
+                                    <td class="sticky-col font-medium">Ritmo Espacial Clasificado</td>
+                                    ${list.map(item => `<td><span class="tag tag-sm" style="background:rgba(191,90,242,0.18); color:#bf5af2; border:0.5px solid rgba(191,90,242,0.4);">${item.rhythms.classification || 'Sin Datos'}</span></td>`).join('')}
+                                </tr>
+                                <tr>
+                                    <td class="sticky-col font-medium">Cadencia de Oleadas</td>
+                                    ${list.map(item => `<td>${item.rhythms.avg_cadence_seconds !== null && item.rhythms.avg_cadence_seconds !== undefined ? `${item.rhythms.avg_cadence_seconds}s` : '--'}</td>`).join('')}
+                                </tr>
+                                <tr>
+                                    <td class="sticky-col font-medium">Coeficiente de Variación (CV)</td>
+                                    ${list.map(item => `<td>${item.rhythms.coefficient_of_variation ?? '0.00'}</td>`).join('')}
+                                </tr>
+                                <tr>
+                                    <td class="sticky-col font-medium">Dinámica Mov. / Detenido</td>
+                                    ${list.map(item => `<td>${item.rhythms.movement_ratio_percent ?? 0}% / ${item.rhythms.stopped_ratio_percent ?? 0}%</td>`).join('')}
+                                </tr>
+                                <tr>
+                                    <td class="sticky-col font-medium">FPS Promedio de Procesamiento</td>
+                                    ${list.map(item => `<td>${item.session.avg_fps} fps</td>`).join('')}
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            `;
+
+            dom.compareContainer.innerHTML = html;
+
+        } catch (e) {
+            console.error('[Compare] Error:', e);
+            dom.compareContainer.innerHTML = `<div class="persons-empty">Error al comparar sesiones: ${e.message}</div>`;
+        }
+    };
+
+    window.openTimeSlotsModal = async () => {
+        try {
+            dom.modalCompare.classList.add('active');
+            dom.compareContainer.innerHTML = '<div class="persons-empty">Agrupando historial por franjas horarias y días de la semana...</div>';
+
+            const res = await fetch('/api/analytics/time-slots');
+            if (!res.ok) throw new Error('No se pudo obtener el análisis por franjas horarias');
+            const data = await res.json();
+            const total = data.total_analyzed_sessions || 0;
+            const slots = data.slots || {};
+            const days = data.days_of_week || [];
+
+            let html = `
+                <div class="rhythm-overview-bar">
+                    <div>
+                        <div class="session-name">📅 Agrupación Histórica por Franjas Horarias y Días</div>
+                        <div class="session-duration">Total de sesiones analizadas: ${total} observaciones completadas</div>
+                    </div>
+                    <button type="button" class="btn btn-xs btn-secondary" onclick="openCompareModal()">
+                        <span>⚖️</span> Volver a Comparativa Directa
+                    </button>
+                </div>
+
+                <div class="time-slots-grid">
+            `;
+
+            const slotKeys = ['morning', 'afternoon', 'evening', 'night'];
+            const slotIcons = { morning: '🌅', afternoon: '☀️', evening: '🌆', night: '🌙' };
+
+            slotKeys.forEach(k => {
+                const s = slots[k] || { label: k, sessions_count: 0, total_persons: 0, avg_concurrent: 0 };
+                html += `
+                    <div class="time-slot-card">
+                        <div class="time-slot-header">
+                            <span class="time-slot-icon">${slotIcons[k] || '⏱️'}</span>
+                            <span class="time-slot-label">${s.label}</span>
+                        </div>
+                        <div class="time-slot-stats">
+                            <div class="time-slot-stat-item">
+                                <span>Sesiones:</span>
+                                <strong>${s.sessions_count}</strong>
+                            </div>
+                            <div class="time-slot-stat-item">
+                                <span>Cuerpos Totales:</span>
+                                <strong>${s.total_persons}</strong>
+                            </div>
+                            <div class="time-slot-stat-item">
+                                <span>Pico Medio:</span>
+                                <strong>${s.avg_concurrent} pers</strong>
+                            </div>
+                        </div>
+                        ${s.sessions && s.sessions.length > 0 ? `<div class="time-slot-sessions-tags">${s.sessions.slice(0, 3).map(name => `<span class="tag tag-sm" style="font-size:0.68rem; padding:1px 6px;">${name}</span>`).join(' ')}</div>` : ''}
+                    </div>
+                `;
+            });
+
+            html += `
+                </div>
+
+                <div class="rhythm-zone-sync-card" style="margin-top: 18px;">
+                    <div class="rhythm-zone-sync-title">
+                        <span>📊</span>
+                        <span>Distribución Acumulada por Día de la Semana</span>
+                    </div>
+                    <div class="days-week-grid">
+            `;
+
+            days.forEach(d => {
+                html += `
+                    <div class="day-week-card">
+                        <div class="day-week-name">${d.day}</div>
+                        <div class="day-week-count">${d.total_persons}<span class="text-xs text-subtle"> pers</span></div>
+                        <span class="tag tag-sm" style="margin-top:4px; font-size:0.68rem;">${d.sessions_count} ${d.sessions_count === 1 ? 'sesión' : 'sesiones'}</span>
+                    </div>
+                `;
+            });
+
+            html += `
+                    </div>
+                </div>
+            `;
+
+            dom.compareContainer.innerHTML = html;
+
+        } catch (e) {
+            console.error('[TimeSlots] Error:', e);
+            dom.compareContainer.innerHTML = `<div class="persons-empty">Error al cargar franjas horarias: ${e.message}</div>`;
+        }
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // PHASE 9: INTERACCIONES INTERPERSONALES Y PROXIMIDAD SOCIAL
+    // ═══════════════════════════════════════════════════════
+
+    window.viewSessionInteractions = async (sessionId, distanceThreshold = 0.12, minSeconds = 3.0) => {
+        try {
+            dom.modalInteractions.classList.add('active');
+            dom.interactionsContainer.innerHTML = '<div class="persons-empty">Calculando proximidad continuada e interacciones sociales...</div>';
+
+            const res = await fetch(`/api/analytics/sessions/${sessionId}/interactions?distance_threshold=${distanceThreshold}&min_seconds=${minSeconds}`);
+            if (!res.ok) throw new Error('No se pudo obtener el análisis de interacciones');
+            const data = await res.json();
+            const session = data.session || {};
+            const inter = data.interactions || {};
+            const list = inter.interactions || [];
+
+            const durMin = ((inter.duration_seconds || session.duration_seconds || 1) / 60).toFixed(1);
+            const activeDist = inter.distance_threshold || distanceThreshold;
+            const activeMinSec = inter.min_interaction_seconds || minSeconds;
+
+            let html = `
+                <div class="rhythm-overview-bar">
+                    <div>
+                        <div class="session-name">👥 ${session.name || sessionId}</div>
+                        <div class="session-duration">ID: ${sessionId} • Duración: ${durMin} min</div>
+                    </div>
+                    <div class="crowd-params-controls">
+                        <div class="crowd-param-group">
+                            <span class="crowd-param-label">Distancia:</span>
+                            <button type="button" class="btn-social-param ${Math.abs(activeDist - 0.08) < 0.02 ? 'active' : ''}" data-param="dist" data-val="0.08">0.08m</button>
+                            <button type="button" class="btn-social-param ${Math.abs(activeDist - 0.12) < 0.02 ? 'active' : ''}" data-param="dist" data-val="0.12">0.12m</button>
+                            <button type="button" class="btn-social-param ${Math.abs(activeDist - 0.20) < 0.02 ? 'active' : ''}" data-param="dist" data-val="0.20">0.20m</button>
+                        </div>
+                        <div class="crowd-param-group">
+                            <span class="crowd-param-label">Duración Mín:</span>
+                            <button type="button" class="btn-social-param ${Math.abs(activeMinSec - 2.0) < 0.2 ? 'active' : ''}" data-param="dur" data-val="2.0">2s</button>
+                            <button type="button" class="btn-social-param ${Math.abs(activeMinSec - 3.0) < 0.2 ? 'active' : ''}" data-param="dur" data-val="3.0">3s</button>
+                            <button type="button" class="btn-social-param ${Math.abs(activeMinSec - 5.0) < 0.2 ? 'active' : ''}" data-param="dur" data-val="5.0">5s</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rhythm-kpis-grid">
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Ratio de Sociabilidad</span>
+                        <div class="rhythm-kpi-value" style="color: #64d2ff;">
+                            ${inter.social_ratio_percent || 0}<span class="rhythm-kpi-unit">%</span>
+                        </div>
+                        <span class="rhythm-kpi-sub">${inter.unique_interacting_persons || 0} de ${inter.total_individuals_count || 0} interactuaron</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Total Interacciones</span>
+                        <div class="rhythm-kpi-value">${inter.total_interactions_count || 0}</div>
+                        <span class="rhythm-kpi-sub">Encuentros de proximidad</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Duración Media</span>
+                        <div class="rhythm-kpi-value">${inter.avg_interaction_duration_seconds || 0}<span class="rhythm-kpi-unit">s</span></div>
+                        <span class="rhythm-kpi-sub">Tiempo medio en interacción</span>
+                    </div>
+
+                    <div class="rhythm-kpi-card">
+                        <span class="rhythm-kpi-label">Interacción más Larga</span>
+                        <div class="rhythm-kpi-value">${inter.longest_interaction_seconds || 0}<span class="rhythm-kpi-unit">s</span></div>
+                        <span class="rhythm-kpi-sub">Permanencia compartida</span>
+                    </div>
+                </div>
+
+                <div class="crowd-timeline-card">
+                    <div class="rhythm-chart-header">
+                        <div class="rhythm-chart-title">
+                            <span>💬</span>
+                            <span>Registro de Parejas y Grupos en Interacción</span>
+                        </div>
+                        <span class="text-subtle text-xs">${list.length} interacciones identificadas</span>
+                    </div>
+            `;
+
+            if (list.length === 0) {
+                html += `
+                    <div class="persons-empty" style="padding: 28px 16px;">
+                        🚶 No se registraron pares en proximidad continuada bajo el umbral de distancia (${activeDist}m) y duración (${activeMinSec}s). Los ocupantes transitaron de forma individual o distante.
+                    </div>
+                `;
+            } else {
+                html += '<div class="interactions-list">';
+                list.forEach(item => {
+                    const badgeColor = item.interaction_type.includes('Conversación') ? '#30d158' : item.interaction_type.includes('Caminata') ? '#bf5af2' : '#ff9f0a';
+                    html += `
+                        <div class="interaction-card-row">
+                            <div class="interaction-card-left">
+                                <span class="interaction-pair-badge">${item.label}</span>
+                                <span class="tag tag-sm" style="background:${badgeColor}22; color:${badgeColor}; border:0.5px solid ${badgeColor}66;">
+                                    ${item.type_badge || item.interaction_type}
+                                </span>
+                            </div>
+                            <div class="interaction-card-mid">
+                                <div class="interaction-card-times">
+                                    <strong class="font-mono">${item.start_time_label} → ${item.end_time_label}</strong>
+                                    <span class="text-subtle text-xs">(${item.duration_seconds}s continuados)</span>
+                                </div>
+                                <div class="text-subtle text-xs">Distancia Media: <strong style="color:var(--text-primary);">${item.avg_distance}m</strong></div>
+                            </div>
+                            <div class="interaction-card-right">
+                                ${item.zone ? `<span class="tag tag-sm" style="background:rgba(255,255,255,0.06); color:var(--text-primary); border:0.5px solid rgba(255,255,255,0.12);">${item.zone}</span>` : '<span class="text-subtle text-xs">Zona Libre</span>'}
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+            html += '</div>';
+
+            dom.interactionsContainer.innerHTML = html;
+
+            // Bind param buttons
+            const sBtns = dom.interactionsContainer.querySelectorAll('.btn-social-param');
+            sBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const param = btn.getAttribute('data-param');
+                    const val = parseFloat(btn.getAttribute('data-val'));
+                    if (param === 'dist') {
+                        window.viewSessionInteractions(sessionId, val, activeMinSec);
+                    } else {
+                        window.viewSessionInteractions(sessionId, activeDist, val);
+                    }
+                });
+            });
+
+        } catch (e) {
+            console.error('[Interactions] Error:', e);
+            dom.interactionsContainer.innerHTML = `<div class="persons-empty">Error al analizar interacciones: ${e.message}</div>`;
+        }
+    };
+
 
     // ═══════════════════════════════════════════════════════
     // EVENT LISTENERS
@@ -1713,6 +2290,58 @@
         dom.modalRhythms.addEventListener('click', (e) => {
             if (e.target === dom.modalRhythms) {
                 dom.modalRhythms.classList.remove('active');
+            }
+        });
+    }
+
+    // Phase 7: Crowd Alerts Modal
+    if (dom.btnCloseCrowdAlerts) {
+        dom.btnCloseCrowdAlerts.addEventListener('click', () => {
+            dom.modalCrowdAlerts.classList.remove('active');
+        });
+    }
+    if (dom.modalCrowdAlerts) {
+        dom.modalCrowdAlerts.addEventListener('click', (e) => {
+            if (e.target === dom.modalCrowdAlerts) {
+                dom.modalCrowdAlerts.classList.remove('active');
+            }
+        });
+    }
+
+    // Phase 8: Compare & Time Slots
+    if (dom.btnCompareSelected) {
+        dom.btnCompareSelected.addEventListener('click', () => {
+            openCompareModal();
+        });
+    }
+    if (dom.btnOpenTimeSlots) {
+        dom.btnOpenTimeSlots.addEventListener('click', () => {
+            openTimeSlotsModal();
+        });
+    }
+    if (dom.btnCloseCompare) {
+        dom.btnCloseCompare.addEventListener('click', () => {
+            dom.modalCompare.classList.remove('active');
+        });
+    }
+    if (dom.modalCompare) {
+        dom.modalCompare.addEventListener('click', (e) => {
+            if (e.target === dom.modalCompare) {
+                dom.modalCompare.classList.remove('active');
+            }
+        });
+    }
+
+    // Phase 9: Social Interactions Modal
+    if (dom.btnCloseInteractions) {
+        dom.btnCloseInteractions.addEventListener('click', () => {
+            dom.modalInteractions.classList.remove('active');
+        });
+    }
+    if (dom.modalInteractions) {
+        dom.modalInteractions.addEventListener('click', (e) => {
+            if (e.target === dom.modalInteractions) {
+                dom.modalInteractions.classList.remove('active');
             }
         });
     }

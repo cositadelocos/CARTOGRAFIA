@@ -666,6 +666,7 @@ class Database:
                 "rhythm_summary": {
                     "classification": "Sin Datos",
                     "description": "No se registraron coordenadas para esta sesión.",
+                    "coefficient_of_variation": 0.0,
                     "avg_cadence_seconds": None,
                     "max_peak_count": 0,
                     "longest_lull_seconds": 0,
@@ -877,7 +878,493 @@ class Database:
             "zone_rhythms": zone_rhythms,
         }
 
+    def get_session_crowd_events(
+        self,
+        session_id: str,
+        cluster_radius: float = 0.16,
+        min_cluster_size: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Phase 7: Detección de aglomeraciones y alertas espaciales.
+        Agrupamiento por proximidad euclidiana (spatial clustering) y detección de
+        cuellos de botella y picos de sobreocupación local.
+        """
+        cluster_radius = max(0.04, min(0.5, float(cluster_radius or 0.16)))
+        min_cluster_size = max(2, min(20, int(min_cluster_size or 3)))
+
+        with self.get_connection() as conn:
+            session = self.get_session(session_id)
+            if not session:
+                return {}
+
+            cur = conn.execute(
+                """
+                SELECT person_id, timestamp, x, y, speed, state, zone 
+                FROM spatial_points 
+                WHERE session_id = ? 
+                ORDER BY timestamp ASC
+                """,
+                (session_id,)
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+        if not rows:
+            return {
+                "session_id": session_id,
+                "duration_seconds": 0,
+                "cluster_radius": cluster_radius,
+                "min_cluster_size": min_cluster_size,
+                "total_events": 0,
+                "total_crowded_seconds": 0.0,
+                "crowd_time_percent": 0.0,
+                "max_cluster_size": 0,
+                "events": [],
+                "hotspots": [],
+            }
+
+        start_t = rows[0]["timestamp"]
+        end_t = rows[-1]["timestamp"]
+        total_duration = max(1.0, end_t - start_t)
+
+        # Slice points by 1-second intervals
+        slices: Dict[int, Dict[int, Dict[str, Any]]] = {}
+        for r in rows:
+            sec = int(r["timestamp"] - start_t)
+            pid = r["person_id"]
+            if sec not in slices:
+                slices[sec] = {}
+            slices[sec][pid] = r
+
+        # Detect spatial clusters per second
+        raw_second_clusters = []
+        for sec in sorted(slices.keys()):
+            persons_in_sec = list(slices[sec].values())
+            n_p = len(persons_in_sec)
+            if n_p < min_cluster_size:
+                continue
+
+            # Graph adjacency by Euclidean distance
+            adj = {i: [] for i in range(n_p)}
+            for i in range(n_p):
+                for j in range(i + 1, n_p):
+                    dx = persons_in_sec[i]["x"] - persons_in_sec[j]["x"]
+                    dy = persons_in_sec[i]["y"] - persons_in_sec[j]["y"]
+                    dist = math.sqrt(dx * dx + dy * dy)
+                    if dist <= cluster_radius:
+                        adj[i].append(j)
+                        adj[j].append(i)
+
+            visited = set()
+            for i in range(n_p):
+                if i not in visited:
+                    # BFS component
+                    comp = []
+                    q = [i]
+                    visited.add(i)
+                    while q:
+                        curr = q.pop(0)
+                        comp.append(curr)
+                        for neighbor in adj[curr]:
+                            if neighbor not in visited:
+                                visited.add(neighbor)
+                                q.append(neighbor)
+
+                    if len(comp) >= min_cluster_size:
+                        members = [persons_in_sec[idx] for idx in comp]
+                        cx = sum(m["x"] for m in members) / len(members)
+                        cy = sum(m["y"] for m in members) / len(members)
+                        zones = [m.get("zone") for m in members if m.get("zone")]
+                        dominant_zone = max(set(zones), key=zones.count) if zones else None
+
+                        raw_second_clusters.append({
+                            "sec": sec,
+                            "size": len(members),
+                            "cx": round(cx, 3),
+                            "cy": round(cy, 3),
+                            "dominant_zone": dominant_zone,
+                            "person_ids": [m["person_id"] for m in members]
+                        })
+
+        # Merge adjacent seconds into continuous Crowd Events
+        events = []
+        if raw_second_clusters:
+            current_event_secs = [raw_second_clusters[0]]
+            for c in raw_second_clusters[1:]:
+                last_c = current_event_secs[-1]
+                # If gap is <= 2 seconds and centroids are within reasonable distance
+                dx = c["cx"] - last_c["cx"]
+                dy = c["cy"] - last_c["cy"]
+                dist = math.sqrt(dx * dx + dy * dy)
+                if (c["sec"] - last_c["sec"]) <= 2 and dist <= (cluster_radius * 1.5):
+                    current_event_secs.append(c)
+                else:
+                    events.append(current_event_secs)
+                    current_event_secs = [c]
+            if current_event_secs:
+                events.append(current_event_secs)
+
+        formatted_events = []
+        total_crowd_seconds = 0.0
+        max_size_seen = 0
+        hotspots_dict = {}
+
+        for ev in events:
+            start_sec = ev[0]["sec"]
+            end_sec = ev[-1]["sec"]
+            dur = max(1.0, float(end_sec - start_sec + 1))
+            total_crowd_seconds += dur
+
+            peak_size = max(c["size"] for c in ev)
+            max_size_seen = max(max_size_seen, peak_size)
+
+            avg_cx = sum(c["cx"] for c in ev) / len(ev)
+            avg_cy = sum(c["cy"] for c in ev) / len(ev)
+
+            # Zone majority
+            ev_zones = [c["dominant_zone"] for c in ev if c["dominant_zone"]]
+            dom_z = max(set(ev_zones), key=ev_zones.count) if ev_zones else None
+
+            # Severity
+            if peak_size >= 6:
+                severity = "Crítica"
+                color = "#ff453a"
+            elif peak_size >= 4:
+                severity = "Alta"
+                color = "#ff9f0a"
+            else:
+                severity = "Moderada"
+                color = "#ffd60a"
+
+            # Hotspot grouping
+            hs_key = f"{round(avg_cx, 1)}_{round(avg_cy, 1)}"
+            if hs_key not in hotspots_dict:
+                hotspots_dict[hs_key] = {
+                    "cx": round(avg_cx, 3),
+                    "cy": round(avg_cy, 3),
+                    "zone": dom_z,
+                    "event_count": 0,
+                    "total_duration": 0.0
+                }
+            hotspots_dict[hs_key]["event_count"] += 1
+            hotspots_dict[hs_key]["total_duration"] += dur
+
+            formatted_events.append({
+                "id": f"crowd_{start_sec}_{end_sec}",
+                "start_time": start_sec,
+                "end_time": end_sec,
+                "duration_seconds": round(dur, 1),
+                "start_time_label": f"{int(start_sec // 60):02d}:{int(start_sec % 60):02d}",
+                "end_time_label": f"{int(end_sec // 60):02d}:{int(end_sec % 60):02d}",
+                "peak_cluster_size": peak_size,
+                "centroid_x": round(avg_cx, 3),
+                "centroid_y": round(avg_cy, 3),
+                "dominant_zone": dom_z,
+                "severity": severity,
+                "severity_color": color,
+            })
+
+        hotspots = sorted(
+            hotspots_dict.values(),
+            key=lambda item: item["total_duration"],
+            reverse=True
+        )[:5]
+
+        crowd_pct = round((total_crowd_seconds / total_duration) * 100, 1)
+
+        return {
+            "session_id": session_id,
+            "duration_seconds": round(total_duration, 1),
+            "cluster_radius": cluster_radius,
+            "min_cluster_size": min_cluster_size,
+            "total_events": len(formatted_events),
+            "total_crowded_seconds": round(total_crowd_seconds, 1),
+            "crowd_time_percent": crowd_pct,
+            "max_cluster_size": max_size_seen,
+            "events": formatted_events,
+            "hotspots": hotspots,
+        }
+
+    def compare_sessions(self, session_ids: List[str]) -> Dict[str, Any]:
+        """
+        Phase 8: Comparativa entre múltiples sesiones de observación (franjas/días).
+        """
+        if not session_ids:
+            return {"sessions": [], "comparison": {}}
+
+        results = []
+        for sid in session_ids:
+            s = self.get_session(sid)
+            if not s:
+                continue
+            rhythms = self.get_session_rhythms(sid, bucket_seconds=15)
+            zones = self.get_session_zone_metrics(sid)
+
+            results.append({
+                "session": s,
+                "rhythms": rhythms.get("rhythm_summary", {}),
+                "zones_summary": zones.get("zones", []),
+                "timeline_sample": rhythms.get("timeline", [])[:10],
+            })
+
+        if not results:
+            return {"sessions": [], "comparison": {}}
+
+        # Comparative KPIs
+        highest_volume = max(results, key=lambda item: (item["session"].get("total_persons") or 0))
+        highest_concurrent = max(results, key=lambda item: (item["session"].get("max_concurrent") or 0))
+        longest_dur = max(results, key=lambda item: (item["session"].get("duration_seconds") or 0.0))
+
+        return {
+            "sessions_count": len(results),
+            "sessions": results,
+            "summary_highlights": {
+                "highest_volume_session": highest_volume["session"].get("name") or highest_volume["session"].get("id", "Sesión"),
+                "highest_volume_count": highest_volume["session"].get("total_persons") or 0,
+                "highest_concurrent_session": highest_concurrent["session"].get("name") or highest_concurrent["session"].get("id", "Sesión"),
+                "highest_concurrent_count": highest_concurrent["session"].get("max_concurrent") or 0,
+                "longest_session": longest_dur["session"].get("name") or longest_dur["session"].get("id", "Sesión"),
+                "longest_duration": round(longest_dur["session"].get("duration_seconds") or 0.0, 1),
+            }
+        }
+
+    def get_time_slots_analytics(self) -> Dict[str, Any]:
+        """
+        Phase 8: Agrupación histórica por franjas horarias (Madrugada, Mañana, Tarde, Noche)
+        y días de la semana a partir de todas las sesiones registradas.
+        """
+        with self.get_connection() as conn:
+            cur = conn.execute(
+                """
+                SELECT id, name, started_at, duration_seconds, total_persons, max_concurrent, avg_fps, created_at
+                FROM sessions
+                WHERE status = 'completed' AND started_at IS NOT NULL
+                ORDER BY started_at DESC
+                """
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+        slots = {
+            "morning": {"label": "Mañana (06:00 - 12:00)", "sessions_count": 0, "total_persons": 0, "avg_concurrent": 0.0, "sessions": []},
+            "afternoon": {"label": "Tarde (12:00 - 18:00)", "sessions_count": 0, "total_persons": 0, "avg_concurrent": 0.0, "sessions": []},
+            "evening": {"label": "Noche (18:00 - 24:00)", "sessions_count": 0, "total_persons": 0, "avg_concurrent": 0.0, "sessions": []},
+            "night": {"label": "Madrugada (00:00 - 06:00)", "sessions_count": 0, "total_persons": 0, "avg_concurrent": 0.0, "sessions": []},
+        }
+
+        days = {
+            0: {"day": "Lunes", "sessions_count": 0, "total_persons": 0},
+            1: {"day": "Martes", "sessions_count": 0, "total_persons": 0},
+            2: {"day": "Miércoles", "sessions_count": 0, "total_persons": 0},
+            3: {"day": "Jueves", "sessions_count": 0, "total_persons": 0},
+            4: {"day": "Viernes", "sessions_count": 0, "total_persons": 0},
+            5: {"day": "Sábado", "sessions_count": 0, "total_persons": 0},
+            6: {"day": "Domingo", "sessions_count": 0, "total_persons": 0},
+        }
+
+        import datetime
+
+        for r in rows:
+            st = r["started_at"]
+            dt = datetime.datetime.fromtimestamp(st)
+            hour = dt.hour
+            weekday = dt.weekday()
+
+            if 6 <= hour < 12:
+                slot_key = "morning"
+            elif 12 <= hour < 18:
+                slot_key = "afternoon"
+            elif 18 <= hour < 24:
+                slot_key = "evening"
+            else:
+                slot_key = "night"
+
+            slots[slot_key]["sessions_count"] += 1
+            slots[slot_key]["total_persons"] += (r.get("total_persons") or 0)
+            slots[slot_key]["avg_concurrent"] += (r.get("max_concurrent") or 0)
+            slots[slot_key]["sessions"].append(r.get("name") or r.get("id"))
+
+            days[weekday]["sessions_count"] += 1
+            days[weekday]["total_persons"] += (r.get("total_persons") or 0)
+
+        for k in slots.keys():
+            sc = slots[k]["sessions_count"]
+            if sc > 0:
+                slots[k]["avg_concurrent"] = round(slots[k]["avg_concurrent"] / sc, 1)
+
+        return {
+            "total_analyzed_sessions": len(rows),
+            "slots": slots,
+            "days_of_week": list(days.values())
+        }
+
+    def get_session_interactions(
+        self,
+        session_id: str,
+        distance_threshold: float = 0.12,
+        min_interaction_seconds: float = 3.0
+    ) -> Dict[str, Any]:
+        """
+        Phase 9: Detección de interacciones interpersonales y proximidad social.
+        Identifica pares de individuos en interacción continuada, agrupamiento y caminata conjunta.
+        """
+        distance_threshold = max(0.04, min(0.35, float(distance_threshold or 0.12)))
+        min_interaction_seconds = max(1.0, min(60.0, float(min_interaction_seconds or 3.0)))
+
+        with self.get_connection() as conn:
+            session = self.get_session(session_id)
+            if not session:
+                return {}
+
+            cur = conn.execute(
+                """
+                SELECT person_id, timestamp, x, y, speed, state, zone 
+                FROM spatial_points 
+                WHERE session_id = ? 
+                ORDER BY timestamp ASC
+                """,
+                (session_id,)
+            )
+            rows = [dict(r) for r in cur.fetchall()]
+
+        if not rows:
+            return {
+                "session_id": session_id,
+                "total_interactions": 0,
+                "unique_interacting_persons": 0,
+                "social_ratio_percent": 0.0,
+                "avg_interaction_duration": 0.0,
+                "interactions": [],
+            }
+
+        start_t = rows[0]["timestamp"]
+        end_t = rows[-1]["timestamp"]
+        total_span = max(1.0, end_t - start_t)
+
+        all_persons = set(r["person_id"] for r in rows)
+
+        # Bin points by 1-second intervals
+        slices: Dict[int, Dict[int, Dict[str, Any]]] = {}
+        for r in rows:
+            sec = int(r["timestamp"] - start_t)
+            pid = r["person_id"]
+            if sec not in slices:
+                slices[sec] = {}
+            slices[sec][pid] = r
+
+        # Pair proximity occurrences: {(p1, p2): [sec1, sec2, ...]}
+        pair_seconds: Dict[tuple, List[Dict[str, Any]]] = {}
+        sorted_secs = sorted(slices.keys())
+
+        for sec in sorted_secs:
+            persons = list(slices[sec].values())
+            n = len(persons)
+            for i in range(n):
+                for j in range(i + 1, n):
+                    p1 = persons[i]
+                    p2 = persons[j]
+                    pid1 = min(p1["person_id"], p2["person_id"])
+                    pid2 = max(p1["person_id"], p2["person_id"])
+                    pair_key = (pid1, pid2)
+
+                    dx = p1["x"] - p2["x"]
+                    dy = p1["y"] - p2["y"]
+                    d = math.sqrt(dx * dx + dy * dy)
+
+                    if d <= distance_threshold:
+                        if pair_key not in pair_seconds:
+                            pair_seconds[pair_key] = []
+                        pair_seconds[pair_key].append({
+                            "sec": sec,
+                            "dist": d,
+                            "zone": p1.get("zone") or p2.get("zone"),
+                            "state1": p1.get("state"),
+                            "state2": p2.get("state"),
+                        })
+
+        # Find continuous runs >= min_interaction_seconds
+        encounters = []
+        interacting_pids = set()
+
+        for (pid1, pid2), sec_list in pair_seconds.items():
+            if not sec_list:
+                continue
+
+            # Group consecutive seconds with gap <= 2s
+            runs = []
+            curr_run = [sec_list[0]]
+            for item in sec_list[1:]:
+                if (item["sec"] - curr_run[-1]["sec"]) <= 2:
+                    curr_run.append(item)
+                else:
+                    runs.append(curr_run)
+                    curr_run = [item]
+            if curr_run:
+                runs.append(curr_run)
+
+            for run in runs:
+                dur = max(1.0, float(run[-1]["sec"] - run[0]["sec"] + 1))
+                if dur >= min_interaction_seconds:
+                    interacting_pids.add(pid1)
+                    interacting_pids.add(pid2)
+
+                    avg_d = sum(item["dist"] for item in run) / len(run)
+                    zones = [item["zone"] for item in run if item["zone"]]
+                    dom_zone = max(set(zones), key=zones.count) if zones else None
+
+                    # Classification
+                    stopped_both = sum(1 for item in run if item["state1"] == "stopped" and item["state2"] == "stopped")
+                    moving_both = sum(1 for item in run if item["state1"] == "moving" and item["state2"] == "moving")
+
+                    if stopped_both >= (len(run) * 0.5):
+                        interaction_type = "Conversación Estacionaria"
+                        type_badge = "☕ Conversación"
+                    elif moving_both >= (len(run) * 0.5):
+                        interaction_type = "Caminata Conjunta"
+                        type_badge = "🚶 Caminata Conjunta"
+                    else:
+                        interaction_type = "Interacción Mixta"
+                        type_badge = "🔄 Mixta"
+
+                    start_sec = run[0]["sec"]
+                    end_sec = run[-1]["sec"]
+
+                    encounters.append({
+                        "person_a": pid1,
+                        "person_b": pid2,
+                        "label": f"P{pid1:02d} ↔ P{pid2:02d}",
+                        "start_time": start_sec,
+                        "end_time": end_sec,
+                        "duration_seconds": round(dur, 1),
+                        "start_time_label": f"{int(start_sec // 60):02d}:{int(start_sec % 60):02d}",
+                        "end_time_label": f"{int(end_sec // 60):02d}:{int(end_sec % 60):02d}",
+                        "avg_distance": round(avg_d, 3),
+                        "zone": dom_zone,
+                        "interaction_type": interaction_type,
+                        "type_badge": type_badge,
+                    })
+
+        encounters.sort(key=lambda item: item["duration_seconds"], reverse=True)
+
+        avg_dur = round(sum(e["duration_seconds"] for e in encounters) / len(encounters), 1) if encounters else 0.0
+        longest_dur = max([e["duration_seconds"] for e in encounters], default=0.0)
+        total_p = max(1, len(all_persons))
+        social_pct = round((len(interacting_pids) / total_p) * 100, 1)
+
+        return {
+            "session_id": session_id,
+            "duration_seconds": round(total_span, 1),
+            "distance_threshold": distance_threshold,
+            "min_interaction_seconds": min_interaction_seconds,
+            "total_interactions_count": len(encounters),
+            "unique_interacting_persons": len(interacting_pids),
+            "total_individuals_count": len(all_persons),
+            "social_ratio_percent": social_pct,
+            "avg_interaction_duration_seconds": avg_dur,
+            "longest_interaction_seconds": round(longest_dur, 1),
+            "interactions": encounters,
+        }
+
 
 # Global database singleton
 db = Database()
+
 

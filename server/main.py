@@ -19,7 +19,7 @@ from api.analytics import router as analytics_router
 app = FastAPI(
     title="Ritmos — Spatial Rhythm Observer",
     description="Sistema de investigación y observación de espacios físicos mediante visión computacional",
-    version="0.6.0 — Phase 6: Temporal Rhythms & Wave Cadence",
+    version="0.9.0 — Phases 7, 8 & 9: Crowds, Multi-Session Comparison & Social Proximity",
 )
 
 # ─── Health Check ────────────────────────────────────────
@@ -28,8 +28,8 @@ async def health_check():
     """Server health check endpoint."""
     return JSONResponse({
         "status": "ok",
-        "version": "0.6.0",
-        "phase": 6,
+        "version": "0.9.0",
+        "phase": 9,
     })
 
 

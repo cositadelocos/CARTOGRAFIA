@@ -4,7 +4,8 @@ Endpoints to query cumulative heatmaps, trajectory reconstructions, and spatial 
 """
 
 from fastapi import APIRouter, HTTPException, Query
-from typing import Optional
+from typing import Optional, List
+from pydantic import BaseModel
 
 from storage.db import db
 
@@ -124,6 +125,97 @@ async def get_session_rhythms(
     return {
         "session": session,
         "rhythms": rhythms
+    }
+
+
+# ─── Phase 7: Aglomeraciones y Alertas Espaciales ─────────
+@router.get("/sessions/{session_id}/crowd-events")
+async def get_session_crowd_events(
+    session_id: str,
+    cluster_radius: float = Query(0.16, ge=0.04, le=0.50, description="Radio de proximidad euclidiana para clustering espacial (0.04 a 0.50)"),
+    min_cluster_size: int = Query(3, ge=2, le=20, description="Número mínimo de personas para constituir aglomeración")
+):
+    """
+    Phase 7: Detección de aglomeraciones, cuellos de botella y picos locales de congestión.
+    Devuelve eventos continuos de acumulación, niveles de severidad y coordenadas de centroides.
+    """
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    crowd_data = db.get_session_crowd_events(
+        session_id=session_id,
+        cluster_radius=cluster_radius,
+        min_cluster_size=min_cluster_size
+    )
+    return {
+        "session": session,
+        "crowd_analytics": crowd_data
+    }
+
+
+# ─── Phase 8: Comparativa entre Franjas Horarias y Sesiones ───
+class CompareSessionsRequest(BaseModel):
+    session_ids: List[str]
+
+
+@router.post("/compare")
+async def compare_sessions_post(req: CompareSessionsRequest):
+    """
+    Phase 8: Comparativa analítica entre múltiples sesiones seleccionadas (JSON POST).
+    """
+    if not req.session_ids:
+        raise HTTPException(status_code=400, detail="Debe especificar al menos una sesión para comparar")
+    comparison = db.compare_sessions(req.session_ids)
+    return comparison
+
+
+@router.get("/compare")
+async def compare_sessions_get(session_ids: str = Query(..., description="IDs de sesión separados por coma")):
+    """
+    Phase 8: Comparativa analítica entre múltiples sesiones seleccionadas (GET comma-separated).
+    """
+    ids = [sid.strip() for sid in session_ids.split(",") if sid.strip()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Debe especificar al menos una sesión para comparar")
+    comparison = db.compare_sessions(ids)
+    return comparison
+
+
+@router.get("/time-slots")
+async def get_historical_time_slots():
+    """
+    Phase 8: Agrupación histórica agregada por franjas horarias y días de la semana
+    de todas las observaciones completadas.
+    """
+    slots_data = db.get_time_slots_analytics()
+    return slots_data
+
+
+# ─── Phase 9: Interacciones y Proximidad Social ────────────
+@router.get("/sessions/{session_id}/interactions")
+async def get_session_interactions(
+    session_id: str,
+    distance_threshold: float = Query(0.12, ge=0.04, le=0.40, description="Distancia euclidiana máxima de proximidad (0.04 a 0.40)"),
+    min_seconds: float = Query(3.0, ge=1.0, le=60.0, description="Segundos mínimos de proximidad continuada para validar interacción")
+):
+    """
+    Phase 9: Detección de interacciones interpersonales y proximidad social.
+    Identifica pares de individuos en interacción continuada, clasificación cualitativa
+    (conversación estacionaria vs caminata conjunta) y ratio social del espacio.
+    """
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    interactions_data = db.get_session_interactions(
+        session_id=session_id,
+        distance_threshold=distance_threshold,
+        min_interaction_seconds=min_seconds
+    )
+    return {
+        "session": session,
+        "interactions": interactions_data
     }
 
 

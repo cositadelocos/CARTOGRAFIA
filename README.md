@@ -238,11 +238,45 @@ $env:PORT = "8000"                   # Puerto del servidor
 - [x] **Modal de Ritmos Espaciales**: Selector dinámico de resolución, tarjeta de clasificación con orbe pulsante, KPIs de cadencia y sincronización interzonal.
 - [x] Endpoint REST: `GET /api/analytics/sessions/{session_id}/rhythms?bucket_seconds={s}`
 
+### ✅ Fase 7 — Detección de Aglomeraciones y Alertas Espaciales
+- [x] **Clustering Espacial por Proximidad Euclidiana**: Algoritmo de grafos y componentes conexas (BFS) para agrupar personas en proximidad crítica ($d \le r$, radio parametrizable 0.10m - 0.25m).
+- [x] **Detección de Cuellos de Botella Espaciales (Hotspots Recurrentes)**: Ranking de focos espaciales persistentes con centroides $(x_c, y_c)$, zonas dominantes, conteo de incidencias y duración total en congestión.
+- [x] **Niveles de Severidad de Aglomeración**:
+  - *Moderada* (2-3 personas en cluster continuo, amarillo `#ffd60a`)
+  - *Alta* (4-5 personas, naranja `#ff9f0a`)
+  - *Crítica* ($\ge 6$ personas, rojo `#ff453a`)
+- [x] **Registro Cronológico de Aglomeraciones**: Línea de tiempo de eventos continuos con marcas de tiempo, duración, centroides y picos máximos.
+- [x] **Modal de Aglomeraciones**: Selector interactivo de radio y umbral de grupo, KPIs de congestión y lista de incidentes.
+- [x] Endpoint REST: `GET /api/analytics/sessions/{session_id}/crowd-events?cluster_radius={r}&min_cluster_size={k}`
+
+### ✅ Fase 8 — Comparativa entre Franjas Horarias y Días
+- [x] **Matriz Comparativa Multisesión**: Selección simultánea de 2 o más sesiones del historial con casillas interactivas y contraste directo de variables:
+  - Duración, volumen total acumulado y concurrencia máxima
+  - Clasificación de ritmos espaciales y cadencia de oleadas
+  - Coeficiente de variación (CV) y dinámica de movimiento vs detención
+  - KPIs destacados de mayor afluencia, mayor concurrencia y mayor duración
+- [x] **Agrupación Histórica por Franjas Horarias del Día**:
+  - *Mañana* (06:00 - 12:00)
+  - *Tarde* (12:00 - 18:00)
+  - *Noche* (18:00 - 24:00)
+  - *Madrugada* (00:00 - 06:00)
+- [x] **Distribución Semanal por Días**: Totales acumulados y promedio de concurrencia de Lunes a Domingo.
+- [x] **Modal de Comparativa y Franjas**: Barra de herramientas en el historial, tabla con columna fija (`sticky`), tarjetas de franjas y tarjetas de días.
+- [x] Endpoints REST: `POST /api/analytics/compare`, `GET /api/analytics/compare?session_ids=...` y `GET /api/analytics/time-slots`
+
+### ✅ Fase 9 — Detección de Interacciones y Proximidad Social
+- [x] **Detección de Proximidad Continuada**: Análisis de pares únicos $(P_A \leftrightarrow P_B)$ en distancia euclidiana reducida ($\le 0.12\text{m}$) sostenida durante $\ge 3\text{s}$.
+- [x] **Clasificación Cualitativa de Dinámica Social**:
+  - *Conversación Estacionaria* (`☕ Conversación`): Ambos individuos permanecen detenidos en el mismo espacio.
+  - *Caminata Conjunta* (`🚶 Caminata Conjunta`): Ambos individuos se desplazan simultáneamente en trayectoria paralela.
+  - *Interacción Mixta* (`🔄 Mixta`): Alternancia entre movimiento y detención compartida.
+- [x] **Índice de Sociabilidad del Espacio**: Porcentaje de personas que formaron parte de interacciones grupales o de pareja sobre el total de visitantes únicos.
+- [x] **Modal de Interacciones y Proximidad**: Filtros de sensibilidad de distancia y tiempo mínimo, métricas de sociabilidad y listado de parejas con distancias medias y zonas.
+- [x] Endpoint REST: `GET /api/analytics/sessions/{session_id}/interactions?distance_threshold={d}&min_seconds={s}`
+
 ## ⏳ Próximas Fases
-- **Fase 7:** Detección de aglomeraciones y alertas espaciales
-- **Fase 8:** Comparativa entre franjas horarias y días
-- **Fase 9:** Detección de interacciones y proximidad entre personas
-- **Fase 10:** Exportación de informes PDF y CSV
+- **Fase 10:** Exportación de informes ejecutivos en PDF y hojas tabulares en CSV/Excel
+
 
 
 
