@@ -35,13 +35,13 @@ TRACKER_CONFIG = os.getenv("TRACKER_CONFIG", "bytetrack.yaml")
 
 # ─── Processing Configuration ───────────────────────────
 # Target analysis FPS (frames the server will process per second)
-DEFAULT_ANALYSIS_FPS = int(os.getenv("DEFAULT_ANALYSIS_FPS", "5"))
+DEFAULT_ANALYSIS_FPS = int(os.getenv("DEFAULT_ANALYSIS_FPS", "15"))
 
 # Speed threshold (normalized units/frame) below which a person is "stopped"
 STOP_SPEED_THRESHOLD = float(os.getenv("STOP_SPEED_THRESHOLD", "0.005"))
 
 # How many frames a person can be missing before considered "exited"
-TRACK_DISAPPEAR_FRAMES = int(os.getenv("TRACK_DISAPPEAR_FRAMES", "45"))
+TRACK_DISAPPEAR_FRAMES = int(os.getenv("TRACK_DISAPPEAR_FRAMES", "12"))
 
 # ─── Server Configuration ───────────────────────────────
 HOST = os.getenv("HOST", "0.0.0.0")

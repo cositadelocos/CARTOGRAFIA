@@ -15,12 +15,26 @@ from api.zones import router as zones_router
 from api.analytics import router as analytics_router
 
 
+from starlette.middleware.base import BaseHTTPMiddleware
+
 # ─── Create FastAPI App ──────────────────────────────────
 app = FastAPI(
     title="Ritmos — Spatial Rhythm Observer",
     description="Sistema de investigación y observación de espacios físicos mediante visión computacional",
     version="1.0.0 — Phase 10: Executive PDF & Tabular CSV/Excel Reports",
 )
+
+class NoCacheStaticMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        response = await call_next(request)
+        path = request.url.path.lower()
+        if path.endswith(('.js', '.css', '.html')) or path == '/' or path == '':
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
+
+app.add_middleware(NoCacheStaticMiddleware)
 
 # ─── Health Check ────────────────────────────────────────
 @app.get("/api/health")

@@ -37,6 +37,25 @@
         selectedSessionIds: new Set(),
     };
 
+    // ─── Toast Notification (Mobile & Desktop) ──────────
+    function showToast(message, duration = 3000) {
+        let toast = document.getElementById('mobile-toast');
+        if (!toast) {
+            toast = document.createElement('div');
+            toast.id = 'mobile-toast';
+            toast.style.cssText = 'position:fixed; bottom:24px; left:50%; transform:translateX(-50%); background:rgba(28,28,30,0.92); backdrop-filter:blur(16px); color:#fff; border:1px solid rgba(255,255,255,0.18); padding:10px 20px; border-radius:24px; font-size:0.88rem; font-weight:600; box-shadow:0 8px 32px rgba(0,0,0,0.4); z-index:99999; transition:opacity 0.3s, transform 0.3s; pointer-events:none; text-align:center; max-width:90vw;';
+            document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.style.opacity = '1';
+        toast.style.transform = 'translateX(-50%) translateY(0)';
+        clearTimeout(toast._timer);
+        toast._timer = setTimeout(() => {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(-50%) translateY(10px)';
+        }, duration);
+    }
+
     // ─── Components ─────────────────────────────────────
     const camera = new CameraManager();
     const ws = new WebSocketManager();
@@ -252,9 +271,10 @@
         if (!ws.isConnected) {
             ws.connect();
         }
-        const fps = parseInt(dom.selectFPS.value, 10) || 5;
-        const quality = parseFloat(dom.selectQuality.value) || 0.6;
-        camera.startCapture(fps, quality);
+
+        // Start lockstep streaming (zero lag, true real-time)
+        isAwaitingVisionResult = false;
+        triggerNextCameraFrame();
 
         addEvent('Cámara activada', `${info.width}×${info.height} — Visión y etiquetado automático en vivo`);
     };
@@ -283,15 +303,48 @@
         alert(message);
     };
 
-    let isSendingFrame = false;
-    camera.onFrame = (blob) => {
-        // Stream frames whenever WebSocket is connected for live automatic labeling
-        if (!ws.isConnected || isSendingFrame) return;
-        if (ws.getBufferedAmount && ws.getBufferedAmount() > 65536) return;
+    // ─── Adaptive Lockstep Frame Streaming ───────────────────
+    // Never buffers frames. Only sends the next frame when server responds.
+    // Guarantees ZERO queueing delay, instant detection, and zero trailing lag.
+    let isAwaitingVisionResult = false;
+    let frameWatchdogTimer = null;
+    let lastFrameSentTimestamp = 0;
+    const minFrameIntervalMs = 25; // Max 35-40 FPS
 
-        isSendingFrame = true;
+    function triggerNextCameraFrame() {
+        if (!camera.isActive || !ws.isConnected) return;
+        if (isAwaitingVisionResult) return;
+
+        const now = Date.now();
+        const delta = now - lastFrameSentTimestamp;
+        if (delta < minFrameIntervalMs) {
+            setTimeout(triggerNextCameraFrame, minFrameIntervalMs - delta);
+            return;
+        }
+
+        camera.captureNow();
+    }
+
+    camera.onFrame = (blob) => {
+        if (!ws.isConnected) return;
+
+        // If network buffer is congested, back off slightly to keep stream live
+        if (ws.getBufferedAmount && ws.getBufferedAmount() > 32768) {
+            isAwaitingVisionResult = false;
+            setTimeout(triggerNextCameraFrame, 50);
+            return;
+        }
+
+        isAwaitingVisionResult = true;
+        lastFrameSentTimestamp = Date.now();
         ws.sendFrame(blob);
-        setTimeout(() => { isSendingFrame = false; }, 35);
+
+        // Watchdog: If server response is lost or delayed, reset lock after 450ms
+        clearTimeout(frameWatchdogTimer);
+        frameWatchdogTimer = setTimeout(() => {
+            isAwaitingVisionResult = false;
+            triggerNextCameraFrame();
+        }, 450);
     };
 
     // ═══════════════════════════════════════════════════════
@@ -307,14 +360,21 @@
                 zones: state.zones
             });
         }
+        isAwaitingVisionResult = false;
+        triggerNextCameraFrame();
     };
 
     ws.onDisconnect = () => {
         console.log('[App] WebSocket vision disconnected');
         dom.processingIndicator.classList.add('hidden');
+        isAwaitingVisionResult = false;
     };
 
     ws.onResult = (result) => {
+        // Unlock next frame immediately: packet arrived!
+        clearTimeout(frameWatchdogTimer);
+        isAwaitingVisionResult = false;
+
         const { persons, disappeared, frame_stats, session } = result;
 
         // Render live detection bounding boxes, tracking, and automatic labels
@@ -341,6 +401,9 @@
         if (frame_stats && frame_stats.zone_occupancy) {
             updateZonesOccupancy(frame_stats.zone_occupancy);
         }
+
+        // Trigger next camera frame immediately in lockstep!
+        triggerNextCameraFrame();
     };
 
     ws.onControl = (message) => {
@@ -433,6 +496,7 @@
         }
 
         // Send start session control message to server
+        // Send start session control message to server
         ws.sendControl({
             action: 'session_start',
             session_id: sessionId,
@@ -440,12 +504,15 @@
         });
 
         // Start camera video recording for historical playback
-        camera.startVideoRecording();
+        const recStarted = camera.startVideoRecording();
+        if (recStarted) {
+            showToast(`🔴 Grabando video y métricas: ${spaceName}`);
+        } else {
+            showToast(`⚠️ Grabando datos espaciales (video no disponible)`);
+        }
 
-        // Ensure capture is running at configured FPS
-        const fps = parseInt(dom.selectFPS.value, 10) || 5;
-        const quality = parseFloat(dom.selectQuality.value) || 0.6;
-        camera.startCapture(fps, quality);
+        // Ensure lockstep streaming is active
+        triggerNextCameraFrame();
 
         // Update UI
         dom.btnStart.classList.add('hidden');
@@ -474,7 +541,7 @@
 
         dom.sessionStatus.textContent = 'En pausa';
         dom.sessionStatus.className = 'paused';
-
+        showToast('⏸️ Sesión pausada');
         addEvent('Sesión pausada', 'Registro de coordenadas suspendido temporalmente');
     }
 
@@ -494,7 +561,7 @@
 
         dom.sessionStatus.textContent = `Grabando: ${state.sessionName}`;
         dom.sessionStatus.className = 'recording';
-
+        showToast('▶️ Sesión reanudada');
         addEvent('Sesión reanudada', 'Continuando registro en SQLite');
     }
 
@@ -502,8 +569,9 @@
         if (!state.sessionActive) return;
 
         const stoppedSessionId = state.sessionId;
-
         ws.sendControl({ action: 'session_stop' });
+
+        showToast('💾 Procesando y guardando video...');
 
         // Stop video recording and upload to backend
         try {
@@ -523,14 +591,19 @@
                     const data = await upRes.json();
                     console.log('[Session] Video saved to server:', data);
                     const mbSize = (videoBlob.size / 1024 / 1024).toFixed(2);
+                    showToast(`✅ Video guardado: ${mbSize} MB (${ext.toUpperCase()}) en Historial`);
                     addEvent('Video guardado', `${mbSize} MB archivados para reproducción (${ext.toUpperCase()})`);
                     refreshHistoryCount();
                 } else {
                     console.warn('[Session] Video upload returned non-200:', upRes.status);
+                    showToast('⚠️ No se pudo cargar el video en el servidor');
                 }
+            } else {
+                showToast('ℹ️ Sesión guardada en SQLite (sin archivo de video)');
             }
         } catch (e) {
             console.warn('[Session] Error finalizing video recording:', e);
+            showToast('⚠️ Error al finalizar video: ' + e.message);
         }
 
         clearInterval(state.timerInterval);

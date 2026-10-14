@@ -49,7 +49,7 @@ class CanvasOverlay {
         this.showTrails = true;
         this.showGrid = false;
         this.showZones = true;
-        this.trailLength = 25;
+        this.trailLength = 6;
 
         // Apple iOS dark color palette
         this.personColors = [
@@ -111,14 +111,11 @@ class CanvasOverlay {
             }
         }
 
-        // Clean faded trails for people who left
+        // Clean trails immediately for people who left (eliminates ghost lag on screen)
         const activeIds = new Set(this.lastPersons.map(p => p.id));
         for (const id of Object.keys(this.trails)) {
             if (!activeIds.has(parseInt(id))) {
-                this.trails[id].shift();
-                if (this.trails[id].length === 0) {
-                    delete this.trails[id];
-                }
+                delete this.trails[id];
             }
         }
 
