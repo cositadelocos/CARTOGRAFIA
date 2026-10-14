@@ -817,46 +817,75 @@ body {
     font-weight: 500;
 }
 
-/* Live Zones Occupancy List */
+/* Live Zones Occupancy List (Refined Card Tiles - Image 2) */
 .zones-occupancy-list {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 8px;
 }
 
+.zone-occupancy-tile,
 .zone-occupancy-item {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 7px 10px;
+    padding: 10px 14px;
     background: var(--surface-card);
-    border-radius: var(--radius-xs);
     border: var(--border-hairline);
-    font-size: 0.78rem;
+    border-radius: var(--radius-sm);
+    transition: background 0.15s ease, border-color 0.15s ease;
 }
 
+.zone-occupancy-tile:hover,
+.zone-occupancy-item:hover {
+    background: var(--surface-card-hover);
+    border-color: rgba(255, 255, 255, 0.14);
+}
+
+.zone-name-group,
 .zone-occupancy-left {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
 }
 
+.zone-dot,
 .zone-color-dot {
-    width: 8px;
-    height: 8px;
+    width: 9px;
+    height: 9px;
     border-radius: 50%;
+    display: inline-block;
     flex-shrink: 0;
 }
 
+.zone-name,
 .zone-occupancy-name {
-    font-weight: 500;
-    color: var(--text-primary);
+    font-size: 0.86rem;
+    font-weight: 600;
+    color: #ffffff;
+    letter-spacing: -0.01em;
 }
 
+.zone-count-badge,
 .zone-occupancy-count {
-    font-family: var(--font-mono);
+    font-size: 0.74rem;
+    font-family: var(--font-apple);
+    color: var(--text-tertiary);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-full);
+    padding: 4px 12px;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    transition: all 0.15s ease;
+}
+
+.zone-count-badge.active,
+.zone-occupancy-count.active {
+    background: rgba(48, 209, 88, 0.14);
+    border-color: rgba(48, 209, 88, 0.35);
+    color: #30d158;
     font-weight: 600;
-    color: var(--text-secondary);
 }
 
 /* Persons Live Tracking List */
