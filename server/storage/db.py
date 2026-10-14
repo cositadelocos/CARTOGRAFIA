@@ -1363,6 +1363,164 @@ class Database:
             "interactions": encounters,
         }
 
+    def export_session_tabular_data(
+        self,
+        session_id: str,
+        sections: Optional[List[str]] = None,
+        delimiter: str = ","
+    ) -> str:
+        """
+        Phase 10: Exportación tabular de variables configurables en formato CSV/Excel
+        con codificación UTF-8 BOM para apertura directa sin distorsión de caracteres.
+        """
+        import io
+        import csv
+
+        if sections is None:
+            sections = ["summary", "zones", "rhythms", "crowds", "interactions", "peaks"]
+
+        s = self.get_session(session_id)
+        if not s:
+            return ""
+
+        output = io.StringIO()
+        # Add UTF-8 BOM for Microsoft Excel compatibility
+        output.write("\ufeff")
+        writer = csv.writer(output, delimiter=delimiter, quoting=csv.QUOTE_MINIMAL)
+
+        # ─── 1. Resumen General ───
+        if "summary" in sections:
+            writer.writerow(["# INFORME DE OBSERVACIÓN ESPACIAL — RITMOS"])
+            writer.writerow(["ID de Sesión", s.get("id", "")])
+            writer.writerow(["Nombre del Espacio", s.get("name", "")])
+            writer.writerow(["Estado", s.get("status", "")])
+            writer.writerow(["Fecha / Hora Creación", s.get("created_at", "")])
+            writer.writerow(["Duración (segundos)", s.get("duration_seconds", 0)])
+            writer.writerow(["Duración (minutos)", round((s.get("duration_seconds") or 0) / 60, 2)])
+            writer.writerow(["Total Cuerpos Registrados", s.get("total_persons", 0)])
+            writer.writerow(["Pico Concurrente Máximo", s.get("max_concurrent", 0)])
+            writer.writerow(["Fotogramas Procesados", s.get("total_frames", 0)])
+            writer.writerow(["FPS Promedio", s.get("avg_fps", 0)])
+            writer.writerow([])
+
+        # ─── 2. Métricas de Zonas (Fase 5) ───
+        if "zones" in sections:
+            zones_data = self.get_session_zone_metrics(session_id)
+            zones_list = zones_data.get("zones", [])
+            writer.writerow(["# MÉTRICAS POR ZONA ESPACIAL (FASE 5)"])
+            writer.writerow([
+                "Zona", "Color", "Total Visitas", "Personas Únicas",
+                "Permanencia Total (s)", "Permanencia Media (s)", "Permanencia Mín (s)",
+                "Permanencia Máx (s)", "Tasa Ocupación (%)", "Pico Simultáneo"
+            ])
+            for z in zones_list:
+                writer.writerow([
+                    z.get("zone", ""),
+                    z.get("color", ""),
+                    z.get("visits_count", 0),
+                    z.get("unique_persons_count", 0),
+                    z.get("total_dwell_seconds", 0),
+                    z.get("avg_dwell_seconds", 0),
+                    z.get("min_dwell_seconds", 0),
+                    z.get("max_dwell_seconds", 0),
+                    z.get("occupancy_rate_percent", 0),
+                    z.get("peak_occupancy", 0)
+                ])
+            writer.writerow([])
+
+        # ─── 3. Ritmos Temporales (Fase 6) ───
+        rhythms_data = self.get_session_rhythms(session_id, bucket_seconds=5) if ("rhythms" in sections or "peaks" in sections) else {}
+        if "rhythms" in sections:
+            r_sum = rhythms_data.get("rhythm_summary", {})
+            writer.writerow(["# RITMOS TEMPORALES Y CADENCIA DE OLEADAS (FASE 6)"])
+            writer.writerow(["Clasificación de Ritmo", r_sum.get("classification", "")])
+            writer.writerow(["Descripción", r_sum.get("description", "")])
+            writer.writerow(["Cadencia Media entre Oleadas (s)", r_sum.get("avg_cadence_seconds", "")])
+            writer.writerow(["Coeficiente de Variación (CV)", r_sum.get("coefficient_of_variation", 0)])
+            writer.writerow(["Pico Máximo en Oleada", r_sum.get("max_peak_count", 0)])
+            writer.writerow(["Valle de Quietud Máximo (s)", r_sum.get("longest_lull_seconds", 0)])
+            writer.writerow(["Ratio Movimiento (%)", r_sum.get("movement_ratio_percent", 0)])
+            writer.writerow(["Ratio Detención (%)", r_sum.get("stopped_ratio_percent", 0)])
+            writer.writerow([])
+
+        # ─── 4. Fotogramas y Picos de Afluencia ───
+        if "peaks" in sections:
+            peaks_list = rhythms_data.get("peaks", [])
+            writer.writerow(["# REGISTRO DE PICOS DE AFLUENCIA Y FOTOGRAMAS CLAVE"])
+            writer.writerow(["Marca Temporal", "Tiempo (segundos)", "Personas Simultáneas", "Zona Dominante"])
+            for p in peaks_list:
+                writer.writerow([
+                    p.get("time_label", ""),
+                    p.get("t", 0),
+                    p.get("count", 0),
+                    p.get("dominant_zone") or "Área General"
+                ])
+            writer.writerow([])
+
+        # ─── 5. Aglomeraciones y Cuellos de Botella (Fase 7) ───
+        if "crowds" in sections:
+            crowd_data = self.get_session_crowd_events(session_id)
+            c_events = crowd_data.get("events", [])
+            c_hotspots = crowd_data.get("hotspots", [])
+            writer.writerow(["# AGLOMERACIONES Y CUELLOS DE BOTELLA (FASE 7)"])
+            writer.writerow(["Total Incidentes", crowd_data.get("total_events", 0)])
+            writer.writerow(["Tiempo en Aglomeración (s)", crowd_data.get("total_crowded_seconds", 0)])
+            writer.writerow(["Porcentaje Tiempo en Congestión (%)", crowd_data.get("crowd_time_percent", 0)])
+            writer.writerow(["Pico Máximo en Racimo", crowd_data.get("max_cluster_size", 0)])
+            writer.writerow([])
+            writer.writerow(["-- Puntos Críticos y Hotspots Espaciales --"])
+            writer.writerow(["Ranking", "Centroide X", "Centroide Y", "Zona", "Apariciones", "Duración Acumulada (s)"])
+            for i, hs in enumerate(c_hotspots, 1):
+                writer.writerow([
+                    f"#{i}", hs.get("cx", 0), hs.get("cy", 0),
+                    hs.get("zone") or "Área Abierta",
+                    hs.get("event_count", 0),
+                    hs.get("total_duration", 0)
+                ])
+            writer.writerow([])
+            writer.writerow(["-- Línea de Tiempo de Aglomeraciones --"])
+            writer.writerow(["ID Evento", "Inicio", "Fin", "Duración (s)", "Personas", "Severidad", "Centroide X", "Centroide Y", "Zona"])
+            for ev in c_events:
+                writer.writerow([
+                    ev.get("id", ""),
+                    ev.get("start_time_label", ""),
+                    ev.get("end_time_label", ""),
+                    ev.get("duration_seconds", 0),
+                    ev.get("peak_cluster_size", 0),
+                    ev.get("severity", ""),
+                    ev.get("centroid_x", 0),
+                    ev.get("centroid_y", 0),
+                    ev.get("dominant_zone") or "Área General"
+                ])
+            writer.writerow([])
+
+        # ─── 6. Proximidad Social e Interacciones (Fase 9) ───
+        if "interactions" in sections:
+            inter_data = self.get_session_interactions(session_id)
+            i_list = inter_data.get("interactions", [])
+            writer.writerow(["# INTERACCIONES Y PROXIMIDAD SOCIAL (FASE 9)"])
+            writer.writerow(["Ratio de Sociabilidad (%)", inter_data.get("social_ratio_percent", 0)])
+            writer.writerow(["Total Interacciones Registradas", inter_data.get("total_interactions_count", 0)])
+            writer.writerow(["Personas en Interacción", inter_data.get("unique_interacting_persons", 0)])
+            writer.writerow(["Duración Media de Interacción (s)", inter_data.get("avg_interaction_duration_seconds", 0)])
+            writer.writerow(["Interacción más Larga (s)", inter_data.get("longest_interaction_seconds", 0)])
+            writer.writerow([])
+            writer.writerow(["-- Listado de Parejas y Grupos en Interacción --"])
+            writer.writerow(["Pareja", "Tipo de Interacción", "Inicio", "Fin", "Duración (s)", "Distancia Media (m)", "Zona"])
+            for it in i_list:
+                writer.writerow([
+                    it.get("label", ""),
+                    it.get("interaction_type", ""),
+                    it.get("start_time_label", ""),
+                    it.get("end_time_label", ""),
+                    it.get("duration_seconds", 0),
+                    it.get("avg_distance", 0),
+                    it.get("zone") or "Área General"
+                ])
+            writer.writerow([])
+
+        return output.getvalue()
+
 
 # Global database singleton
 db = Database()

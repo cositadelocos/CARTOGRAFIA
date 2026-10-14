@@ -173,6 +173,11 @@
         modalInteractions: document.getElementById('modal-interactions'),
         btnCloseInteractions: document.getElementById('btn-close-interactions'),
         interactionsContainer: document.getElementById('interactions-container'),
+
+        // Phase 10: Executive Reports & Tabular Export
+        modalExport: document.getElementById('modal-export'),
+        btnCloseExport: document.getElementById('btn-close-export'),
+        exportContainer: document.getElementById('export-container'),
     };
 
     const chartCtx = dom.activityChart.getContext('2d');
@@ -961,6 +966,9 @@
                             <button class="btn btn-xs btn-session-social" onclick="viewSessionInteractions('${s.id}')" title="Detección de interacciones y proximidad social (Fase 9)">
                                 👥 Interacciones
                             </button>
+                            <button class="btn btn-xs btn-session-export" onclick="openExportModal('${s.id}')" title="Configurar variables y exportar informe ejecutivo PDF o CSV">
+                                📑 Exportar Informe
+                            </button>
                             <button class="btn btn-xs btn-secondary" onclick="downloadSessionPoints('${s.id}')" title="Descargar coordenadas brutas">
                                 📥 JSON
                             </button>
@@ -1530,11 +1538,9 @@
                             ${summary.description || 'Dinámica temporal observada en el espacio.'}
                         </div>
                     </div>
-                    <div class="session-metrics" style="border:none; padding:0; margin:0; background:none;">
-                        <div class="session-metric-item" style="background:rgba(0,0,0,0.4);">
-                            <span>Oleadas / Picos</span>
-                            <strong>${peaks.length}</strong>
-                        </div>
+                    <div class="rhythm-peaks-pill">
+                        <span class="rhythm-peaks-label">Oleadas / Picos</span>
+                        <strong class="rhythm-peaks-val">${peaks.length}</strong>
                     </div>
                 </div>
 
@@ -1623,6 +1629,38 @@
                             <div class="rhythm-zone-stat-row">
                                 <span>Momento del Pico:</span>
                                 <strong>${zInfo.peak_time_label || 'Sin actividad'}</strong>
+                            </div>
+                        </div>
+                    `;
+                }
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Visual Peak Frames & Snapshots (Phase 10 contextual moments)
+            if (peaks && peaks.length > 0) {
+                html += `
+                    <div class="rhythm-zone-sync-card" style="margin-top: 14px;">
+                        <div class="rhythm-zone-sync-title">
+                            <span>📸</span>
+                            <span>Fotogramas Clave de los Picos de Afluencia (Contexto Visual)</span>
+                        </div>
+                        <div class="peaks-frames-grid">
+                `;
+                for (const p of peaks) {
+                    html += `
+                        <div class="peak-frame-card">
+                            <div class="peak-frame-header">
+                                <span class="peak-frame-time font-mono">⏱️ ${p.time_label}</span>
+                                <span class="tag tag-sm" style="background:rgba(100,210,255,0.18); color:#64d2ff; font-weight:700;">${p.count} personas</span>
+                            </div>
+                            <div class="peak-frame-body">
+                                <span class="text-subtle text-xs">Zona: <strong style="color:var(--text-primary);">${p.dominant_zone || 'Área General'}</strong></span>
+                                <button type="button" class="btn btn-xs btn-primary btn-jump-frame" onclick="jumpToSessionFrame('${sessionId}', ${p.t})" title="Saltar al fotograma exacto del pico en el reproductor">
+                                    <span>🎬</span> Ver Fotograma (${p.time_label})
+                                </button>
                             </div>
                         </div>
                     `;
@@ -1801,8 +1839,11 @@
                                 <span class="crowd-event-peak"><strong>${ev.peak_cluster_size}</strong> personas agrupadas</span>
                                 <span class="text-subtle text-xs">Centroide: (${ev.centroid_x}, ${ev.centroid_y})</span>
                             </div>
-                            <div class="crowd-event-right">
-                                ${ev.dominant_zone ? `<span class="tag tag-sm" style="background:rgba(255,255,255,0.06); color:var(--text-primary); border:0.5px solid rgba(255,255,255,0.12);">${ev.dominant_zone}</span>` : '<span class="text-subtle text-xs">Sin zona asignada</span>'}
+                            <div class="crowd-event-right" style="display:flex; align-items:center; gap:6px;">
+                                ${ev.dominant_zone ? `<span class="tag tag-sm" style="background:rgba(255,255,255,0.06); color:var(--text-primary); border:0.5px solid rgba(255,255,255,0.12);">${ev.dominant_zone}</span>` : '<span class="text-subtle text-xs">Sin zona</span>'}
+                                <button type="button" class="btn btn-xs btn-primary btn-jump-frame" onclick="jumpToSessionFrame('${sessionId}', ${ev.start_time})" title="Ver este cuello de botella en video">
+                                    <span>🎬</span> Ver
+                                </button>
                             </div>
                         </div>
                     `;
@@ -2173,6 +2214,478 @@
         }
     };
 
+    // ═══════════════════════════════════════════════════════
+    // VISUAL CONTEXT: JUMP TO KEYFRAME / PEAK MOMENT IN VIDEO
+    // ═══════════════════════════════════════════════════════
+
+    window.jumpToSessionFrame = async (sessionId, seekSeconds) => {
+        try {
+            // Close active analytics modals to uncover camera/video view
+            if (dom.modalRhythms) dom.modalRhythms.classList.remove('active');
+            if (dom.modalCrowdAlerts) dom.modalCrowdAlerts.classList.remove('active');
+            if (dom.modalCompare) dom.modalCompare.classList.remove('active');
+            if (dom.modalInteractions) dom.modalInteractions.classList.remove('active');
+            if (dom.modalExport) dom.modalExport.classList.remove('active');
+            if (dom.modalHistory) dom.modalHistory.classList.remove('active');
+
+            // If timeline is already loaded with this session, seek immediately
+            if (timeline && timeline.session && timeline.session.id === sessionId) {
+                timeline.seekTo(seekSeconds);
+                timeline.pause();
+                addEvent('Fotograma Clave', `Reproductor posicionado en t=${formatTime(seekSeconds)} para contexto visual del pico`);
+            } else {
+                await window.viewSessionHeatmap(sessionId);
+                setTimeout(() => {
+                    if (timeline) {
+                        timeline.seekTo(seekSeconds);
+                        timeline.pause();
+                        addEvent('Fotograma Clave', `Reproductor posicionado en t=${formatTime(seekSeconds)} para contexto visual del pico`);
+                    }
+                }, 220);
+            }
+        } catch (e) {
+            console.error('[JumpFrame] Error:', e);
+            alert(`No se pudo posicionar en el fotograma: ${e.message}`);
+        }
+    };
+
+    // ═══════════════════════════════════════════════════════
+    // PHASE 10: EXECUTIVE REPORTS & TABULAR EXPORT (PDF/CSV)
+    // ═══════════════════════════════════════════════════════
+
+    window.openExportModal = async (sessionId) => {
+        try {
+            dom.modalExport.classList.add('active');
+            dom.exportContainer.innerHTML = '<div class="persons-empty">Cargando datos multidimensionales de la sesión...</div>';
+
+            // Fetch all analytics in parallel
+            const [metaRes, zonesRes, rhythmsRes, crowdRes, socialRes] = await Promise.all([
+                fetch(`/api/sessions/${sessionId}`),
+                fetch(`/api/analytics/sessions/${sessionId}/zones`),
+                fetch(`/api/analytics/sessions/${sessionId}/rhythms?bucket_seconds=5`),
+                fetch(`/api/analytics/sessions/${sessionId}/crowd-events`),
+                fetch(`/api/analytics/sessions/${sessionId}/interactions`)
+            ]);
+
+            const metaData = metaRes.ok ? await metaRes.json() : {};
+            const session = metaData.session || { id: sessionId, name: `Sesión ${sessionId}` };
+            const zonesData = zonesRes.ok ? await zonesRes.json() : {};
+            const rhythmsData = rhythmsRes.ok ? await rhythmsRes.json() : {};
+            const crowdData = crowdRes.ok ? await crowdRes.json() : {};
+            const socialData = socialRes.ok ? await socialRes.json() : {};
+
+            const zones = (zonesData.metrics && zonesData.metrics.zones) || [];
+            const rhythms = rhythmsData.rhythms || {};
+            const rhythmSummary = rhythms.rhythm_summary || {};
+            const peaks = rhythms.peaks || [];
+            const crowd = crowdData.crowd_analytics || {};
+            const crowdEvents = crowd.events || [];
+            const hotspots = crowd.hotspots || [];
+            const social = socialData.interactions || {};
+            const encounters = social.interactions || [];
+
+            const durMin = ((session.duration_seconds || 1) / 60).toFixed(1);
+            const dateStr = session.started_at ? new Date(session.started_at * 1000).toLocaleString() : (session.created_at || 'N/A');
+
+            let html = `
+                <div class="rhythm-overview-bar">
+                    <div>
+                        <div class="session-name">📑 ${session.name || sessionId}</div>
+                        <div class="session-duration">ID: ${sessionId} • ${dateStr} • Duración: ${durMin} min</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <span class="tag tag-sm" style="background:rgba(10,132,255,0.2); color:#64d2ff; padding:3px 8px;">
+                            ${session.total_persons || 0} personas registradas
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Export Controls & Variable Selection Card -->
+                <div class="export-config-card">
+                    <div class="export-config-header">
+                        <h4>⚙️ Variables y Módulos a Incluir en el Informe</h4>
+                        <div class="export-config-actions-quick">
+                            <button type="button" class="btn-xs btn-secondary" id="btn-export-select-all">Marcar Todos</button>
+                            <button type="button" class="btn-xs btn-secondary" id="btn-export-deselect-all">Desmarcar</button>
+                        </div>
+                    </div>
+
+                    <div class="export-variables-grid">
+                        <label class="export-var-item">
+                            <input type="checkbox" class="export-var-checkbox" value="summary" checked>
+                            <span class="custom-checkbox"></span>
+                            <div class="export-var-text">
+                                <strong>Resumen General & KPIs</strong>
+                                <span>Volumen total, concurrencia máxima, duración y FPS medio</span>
+                            </div>
+                        </label>
+
+                        <label class="export-var-item">
+                            <input type="checkbox" class="export-var-checkbox" value="zones" checked>
+                            <span class="custom-checkbox"></span>
+                            <div class="export-var-text">
+                                <strong>Métricas por Zona (Fase 5)</strong>
+                                <span>Tiempos de permanencia, visitas y tasas de ocupación</span>
+                            </div>
+                        </label>
+
+                        <label class="export-var-item">
+                            <input type="checkbox" class="export-var-checkbox" value="rhythms" checked>
+                            <span class="custom-checkbox"></span>
+                            <div class="export-var-text">
+                                <strong>Ritmos Temporales (Fase 6)</strong>
+                                <span>Clasificación espacial, cadencia de oleadas y coef. variación</span>
+                            </div>
+                        </label>
+
+                        <label class="export-var-item">
+                            <input type="checkbox" class="export-var-checkbox" value="peaks" checked>
+                            <span class="custom-checkbox"></span>
+                            <div class="export-var-text">
+                                <strong>Picos de Afluencia & Fotogramas</strong>
+                                <span>Marcas de tiempo exactas para contexto visual</span>
+                            </div>
+                        </label>
+
+                        <label class="export-var-item">
+                            <input type="checkbox" class="export-var-checkbox" value="crowds" checked>
+                            <span class="custom-checkbox"></span>
+                            <div class="export-var-text">
+                                <strong>Aglomeraciones y Cuellos de Botella (Fase 7)</strong>
+                                <span>Puntos críticos espaciales, severidad y centroides</span>
+                            </div>
+                        </label>
+
+                        <label class="export-var-item">
+                            <input type="checkbox" class="export-var-checkbox" value="interactions" checked>
+                            <span class="custom-checkbox"></span>
+                            <div class="export-var-text">
+                                <strong>Interacciones y Proximidad Social (Fase 9)</strong>
+                                <span>Ratio social, parejas, caminatas y conversaciones</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <!-- Delimiter selection & Download Buttons -->
+                    <div class="export-actions-bar">
+                        <div class="export-delimiter-picker">
+                            <span class="text-xs text-subtle">Separador CSV:</span>
+                            <select id="select-export-delimiter" class="setting-select" style="padding: 2px 6px; font-size: 0.72rem;">
+                                <option value="," selected>Coma ( , ) — Estándar</option>
+                                <option value=";">Punto y coma ( ; ) — Excel ES</option>
+                            </select>
+                        </div>
+
+                        <div class="export-download-buttons">
+                            <button type="button" class="btn btn-sm btn-primary" id="btn-print-pdf-report">
+                                <span class="btn-icon">📄</span>
+                                <span>Imprimir / Guardar como PDF</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" id="btn-download-csv-report">
+                                <span class="btn-icon">📊</span>
+                                <span>Descargar CSV / Excel</span>
+                            </button>
+                            <button type="button" class="btn btn-sm btn-secondary" id="btn-download-full-json">
+                                <span class="btn-icon">💾</span>
+                                <span>Descargar JSON</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Executive Report Preview / Printable Container -->
+                <div class="export-preview-card">
+                    <div class="export-preview-header">
+                        <span>👁️ Vista Previa del Informe Ejecutivo</span>
+                        <span class="text-subtle text-xs">Se actualiza en tiempo real según las variables marcadas</span>
+                    </div>
+
+                    <div id="executive-printable-report" class="executive-report-document">
+                        <!-- Header banner -->
+                        <div class="report-doc-header">
+                            <div>
+                                <div class="report-doc-brand">RITMOS • SISTEMA DE OBSERVACIÓN ESPACIAL</div>
+                                <h1 class="report-doc-title">Informe Técnico de Análisis Espacial y Concurrencia</h1>
+                                <div class="report-doc-meta">
+                                    <span>Espacio: <strong>${session.name || 'Sin Nombre'}</strong></span>
+                                    <span> • ID: <strong class="font-mono">${session.id}</strong></span>
+                                    <span> • Fecha: <strong>${dateStr}</strong></span>
+                                    <span> • Duración: <strong>${durMin} min (${session.duration_seconds || 0}s)</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 1. Summary Section -->
+                        <div id="rep-sec-summary" class="report-section">
+                            <h3 class="report-sec-heading">1. Resumen Ejecutivo y Métricas Principales</h3>
+                            <div class="report-kpis-grid">
+                                <div class="report-kpi-item">
+                                    <span class="report-kpi-lbl">Total Personas Detectadas</span>
+                                    <strong class="report-kpi-val">${session.total_persons || 0}</strong>
+                                    <span class="report-kpi-sub">Individuos únicos anónimos</span>
+                                </div>
+                                <div class="report-kpi-item">
+                                    <span class="report-kpi-lbl">Concurrencia Máxima Simultánea</span>
+                                    <strong class="report-kpi-val">${session.max_concurrent || 0}</strong>
+                                    <span class="report-kpi-sub">Pico máximo en un fotograma</span>
+                                </div>
+                                <div class="report-kpi-item">
+                                    <span class="report-kpi-lbl">Dinámica de Movimiento</span>
+                                    <strong class="report-kpi-val">${rhythmSummary.movement_ratio_percent ?? 0}% / ${rhythmSummary.stopped_ratio_percent ?? 0}%</strong>
+                                    <span class="report-kpi-sub">Movimiento vs Detenido</span>
+                                </div>
+                                <div class="report-kpi-item">
+                                    <span class="report-kpi-lbl">Rendimiento de Procesamiento</span>
+                                    <strong class="report-kpi-val">${session.avg_fps || 0} fps</strong>
+                                    <span class="report-kpi-sub">${session.total_frames || 0} fotogramas totales</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Zones Section -->
+                        <div id="rep-sec-zones" class="report-section">
+                            <h3 class="report-sec-heading">2. Métricas de Permanencia y Ocupación por Zona (Fase 5)</h3>
+                            ${zones.length === 0 
+                                ? '<p class="text-subtle text-xs">No se configuraron zonas espaciales durante esta sesión.</p>'
+                                : `
+                                <table class="report-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Zona Espacial</th>
+                                            <th>Visitas</th>
+                                            <th>Personas Únicas</th>
+                                            <th>Permanencia Media</th>
+                                            <th>Permanencia Máx</th>
+                                            <th>Tasa de Ocupación</th>
+                                            <th>Pico Simultáneo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${zones.map(z => `
+                                            <tr>
+                                                <td><strong style="color:${z.color || '#0a84ff'};">■</strong> ${z.zone}</td>
+                                                <td>${z.visits_count}</td>
+                                                <td>${z.unique_persons_count}</td>
+                                                <td>${z.avg_dwell_seconds}s</td>
+                                                <td>${z.max_dwell_seconds}s</td>
+                                                <td><strong>${z.occupancy_rate_percent}%</strong></td>
+                                                <td>${z.peak_occupancy} pers</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            `}
+                        </div>
+
+                        <!-- 3. Rhythms Section -->
+                        <div id="rep-sec-rhythms" class="report-section">
+                            <h3 class="report-sec-heading">3. Ritmos Temporales, Cadencia de Oleadas y Fluctuación (Fase 6)</h3>
+                            <div class="report-highlight-box">
+                                <div>
+                                    <span class="report-badge-pill">${rhythmSummary.classification || 'Ritmo Espacial'}</span>
+                                    <p class="report-desc-text">${rhythmSummary.description || 'Patrón temporal observado en el espacio.'}</p>
+                                </div>
+                                <div class="report-stats-inline">
+                                    <div>Cadencia Media entre Oleadas: <strong>${rhythmSummary.avg_cadence_seconds !== null && rhythmSummary.avg_cadence_seconds !== undefined ? rhythmSummary.avg_cadence_seconds + 's' : 'N/A'}</strong></div>
+                                    <div>Coeficiente de Variación (CV): <strong>${rhythmSummary.coefficient_of_variation ?? '0.00'}</strong></div>
+                                    <div>Pico Máximo en Oleada: <strong>${rhythmSummary.max_peak_count || 0} personas</strong></div>
+                                    <div>Valle de Quietud Máximo: <strong>${rhythmSummary.longest_lull_seconds ?? 0}s</strong></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. Peaks Section -->
+                        <div id="rep-sec-peaks" class="report-section">
+                            <h3 class="report-sec-heading">4. Registro de Picos de Afluencia y Fotogramas Clave</h3>
+                            ${peaks.length === 0
+                                ? '<p class="text-subtle text-xs">No se detectaron oleadas marcadas de afluencia.</p>'
+                                : `
+                                <table class="report-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Marca Temporal</th>
+                                            <th>Tiempo (s)</th>
+                                            <th>Afluencia Máxima</th>
+                                            <th>Zona Dominante</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${peaks.map(p => `
+                                            <tr>
+                                                <td class="font-mono">⏱️ ${p.time_label}</td>
+                                                <td>${p.t}s</td>
+                                                <td><strong>${p.count} personas</strong></td>
+                                                <td>${p.dominant_zone || 'Área General'}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            `}
+                        </div>
+
+                        <!-- 5. Crowds Section -->
+                        <div id="rep-sec-crowds" class="report-section">
+                            <h3 class="report-sec-heading">5. Detección de Aglomeraciones y Cuellos de Botella (Fase 7)</h3>
+                            <div class="report-stats-inline" style="margin-bottom:8px;">
+                                <div>Incidentes Detectados: <strong>${crowd.total_events || 0}</strong></div>
+                                <div>Tiempo en Aglomeración: <strong>${crowd.total_crowded_seconds || 0}s (${crowd.crowd_time_percent || 0}%)</strong></div>
+                                <div>Pico Máximo en Racimo: <strong>${crowd.max_cluster_size || 0} personas</strong></div>
+                            </div>
+                            ${hotspots.length > 0 ? `
+                                <table class="report-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Ranking</th>
+                                            <th>Centroide (x, y)</th>
+                                            <th>Zona Espacial</th>
+                                            <th>Apariciones</th>
+                                            <th>Permanencia Acumulada</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${hotspots.map((hs, i) => `
+                                            <tr>
+                                                <td>#${i + 1}</td>
+                                                <td class="font-mono">(${hs.cx}, ${hs.cy})</td>
+                                                <td>${hs.zone || 'Área Abierta'}</td>
+                                                <td>${hs.event_count} episodios</td>
+                                                <td><strong>${hs.total_duration}s</strong></td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            ` : '<p class="text-subtle text-xs">Sin cuellos de botella recurrentes identificados.</p>'}
+                        </div>
+
+                        <!-- 6. Interactions Section -->
+                        <div id="rep-sec-interactions" class="report-section">
+                            <h3 class="report-sec-heading">6. Interacciones Interpersonales y Proximidad Social (Fase 9)</h3>
+                            <div class="report-stats-inline" style="margin-bottom:8px;">
+                                <div>Índice de Sociabilidad: <strong>${social.social_ratio_percent || 0}%</strong></div>
+                                <div>Total Interacciones: <strong>${social.total_interactions_count || 0}</strong></div>
+                                <div>Individuos Participantes: <strong>${social.unique_interacting_persons || 0}</strong></div>
+                                <div>Duración Media: <strong>${social.avg_interaction_duration_seconds || 0}s</strong></div>
+                            </div>
+                            ${encounters.length > 0 ? `
+                                <table class="report-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Pareja</th>
+                                            <th>Dinámica Cualitativa</th>
+                                            <th>Intervalo</th>
+                                            <th>Duración</th>
+                                            <th>Distancia Media</th>
+                                            <th>Zona</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${encounters.slice(0, 10).map(it => `
+                                            <tr>
+                                                <td class="font-mono"><strong>${it.label}</strong></td>
+                                                <td>${it.interaction_type}</td>
+                                                <td>${it.start_time_label} → ${it.end_time_label}</td>
+                                                <td>${it.duration_seconds}s</td>
+                                                <td>${it.avg_distance}m</td>
+                                                <td>${it.zone || 'Área Libre'}</td>
+                                            </tr>
+                                        `).join('')}
+                                    </tbody>
+                                </table>
+                            ` : '<p class="text-subtle text-xs">Sin parejas continuadas identificadas bajo el umbral de proximidad.</p>'}
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="report-doc-footer">
+                            <span>Informe generado automáticamente por Ritmos — Spatial Rhythm Observer</span>
+                            <span>• Confidencial / Uso de investigación urbana</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            dom.exportContainer.innerHTML = html;
+
+            // Wire Checkbox toggles to live update visible preview sections
+            const checkboxes = dom.exportContainer.querySelectorAll('.export-var-checkbox');
+            function updatePreviewSections() {
+                checkboxes.forEach(cb => {
+                    const secId = `rep-sec-${cb.value}`;
+                    const el = document.getElementById(secId);
+                    if (el) {
+                        el.style.display = cb.checked ? 'block' : 'none';
+                    }
+                });
+            }
+
+            checkboxes.forEach(cb => {
+                cb.addEventListener('change', updatePreviewSections);
+            });
+
+            // Quick select / deselect
+            const btnSelAll = document.getElementById('btn-export-select-all');
+            const btnDeselAll = document.getElementById('btn-export-deselect-all');
+            if (btnSelAll) {
+                btnSelAll.addEventListener('click', () => {
+                    checkboxes.forEach(cb => { cb.checked = true; });
+                    updatePreviewSections();
+                });
+            }
+            if (btnDeselAll) {
+                btnDeselAll.addEventListener('click', () => {
+                    checkboxes.forEach(cb => { cb.checked = false; });
+                    updatePreviewSections();
+                });
+            }
+
+            // Print PDF Action
+            const btnPrint = document.getElementById('btn-print-pdf-report');
+            if (btnPrint) {
+                btnPrint.addEventListener('click', () => {
+                    window.print();
+                });
+            }
+
+            // CSV Download Action
+            const btnCsv = document.getElementById('btn-download-csv-report');
+            if (btnCsv) {
+                btnCsv.addEventListener('click', () => {
+                    const selSections = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value).join(',');
+                    const delimSelect = document.getElementById('select-export-delimiter');
+                    const delim = delimSelect ? delimSelect.value : ',';
+                    window.location.href = `/api/analytics/sessions/${sessionId}/export/csv?sections=${encodeURIComponent(selSections)}&delimiter=${encodeURIComponent(delim)}`;
+                });
+            }
+
+            // Full JSON Download Action
+            const btnJson = document.getElementById('btn-download-full-json');
+            if (btnJson) {
+                btnJson.addEventListener('click', () => {
+                    const fullData = {
+                        session: session,
+                        zones_metrics: zonesData.metrics || {},
+                        rhythms: rhythms,
+                        crowd_events: crowd,
+                        social_interactions: social,
+                        exported_at: new Date().toISOString()
+                    };
+                    const blob = new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `${sessionId}_informe_completo.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+            }
+
+        } catch (e) {
+            console.error('[ExportModal] Error:', e);
+            dom.exportContainer.innerHTML = `<div class="persons-empty">Error al preparar informe: ${e.message}</div>`;
+        }
+    };
+
 
     // ═══════════════════════════════════════════════════════
     // EVENT LISTENERS
@@ -2342,6 +2855,20 @@
         dom.modalInteractions.addEventListener('click', (e) => {
             if (e.target === dom.modalInteractions) {
                 dom.modalInteractions.classList.remove('active');
+            }
+        });
+    }
+
+    // Phase 10: Executive Reports & Tabular Export Modal
+    if (dom.btnCloseExport) {
+        dom.btnCloseExport.addEventListener('click', () => {
+            dom.modalExport.classList.remove('active');
+        });
+    }
+    if (dom.modalExport) {
+        dom.modalExport.addEventListener('click', (e) => {
+            if (e.target === dom.modalExport) {
+                dom.modalExport.classList.remove('active');
             }
         });
     }

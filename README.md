@@ -274,8 +274,27 @@ $env:PORT = "8000"                   # Puerto del servidor
 - [x] **Modal de Interacciones y Proximidad**: Filtros de sensibilidad de distancia y tiempo mínimo, métricas de sociabilidad y listado de parejas con distancias medias y zonas.
 - [x] Endpoint REST: `GET /api/analytics/sessions/{session_id}/interactions?distance_threshold={d}&min_seconds={s}`
 
-## ⏳ Próximas Fases
-- **Fase 10:** Exportación de informes ejecutivos en PDF y hojas tabulares en CSV/Excel
+### ✅ Fase 10 — Exportación de Informes Ejecutivos en PDF y Hojas Tabulares en CSV/Excel
+- [x] **Panel de Configuración de Variables a Exportar**:
+  - Casillas interactivas para modularizar el contenido a exportar:
+    - *Resumen Ejecutivo y Métricas Generales*
+    - *Métricas por Zona y Tiempos de Permanencia (Fase 5)*
+    - *Ritmos Temporales, Cadencia de Oleadas y Fluctuación (Fase 6)*
+    - *Picos de Afluencia y Marcas de Fotogramas Clave*
+    - *Aglomeraciones, Alertas y Cuellos de Botella (Fase 7)*
+    - *Interacciones y Proximidad Social (Fase 9)*
+- [x] **Informe Ejecutivo PDF Imprimible**:
+  - Diseño editorial corporativo con tipografía Apple/Linear, cajas de KPIs, tablas sin bordes toscos, encabezado institucional y reglas CSS `@media print` para generar PDF directamente desde el navegador (`Imprimir / Guardar como PDF`) sin elementos de interfaz ni fondos oscuros.
+- [x] **Exportación Tabular CSV / Excel**:
+  - Descarga directa de archivos `.csv` compatibles con Microsoft Excel en español con codificación **UTF-8 con BOM** (`\ufeff`) y selector de delimitador (coma `,` o punto y coma `;`).
+- [x] **Exportación JSON Completa**:
+  - Respaldo estructurado de todas las métricas de la sesión.
+- [x] **Salto Visual al Fotograma de los Picos de Afluencia**:
+  - Botón interactivo `🎬 Ver Fotograma` en cada pico detectado y en eventos de aglomeración que posiciona el reproductor en el segundo exacto ($t_{\text{pico}}$) con el video y las cajas de detección sincronizadas.
+- [x] Endpoint REST: `GET /api/analytics/sessions/{session_id}/export/csv?sections={s}&delimiter={d}`
+
+---
+🎉 **Sistema Completo: Fases 1 a 10 Finalizadas al 100%**
 
 
 

@@ -3,7 +3,7 @@ Spatial Rhythm Observer — Analytics & Heatmaps REST API (Phase 4)
 Endpoints to query cumulative heatmaps, trajectory reconstructions, and spatial motion summaries.
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from typing import Optional, List
 from pydantic import BaseModel
 
@@ -217,5 +217,33 @@ async def get_session_interactions(
         "session": session,
         "interactions": interactions_data
     }
+
+
+# ─── Phase 10: Exportación de Informes y Hojas Tabulares (CSV/Excel) ──
+@router.get("/sessions/{session_id}/export/csv")
+async def export_session_csv(
+    session_id: str,
+    sections: Optional[str] = Query("summary,zones,rhythms,crowds,interactions,peaks", description="Secciones a incluir separadas por comas"),
+    delimiter: str = Query(",", description="Delimitador de columnas (',' o ';')")
+):
+    """
+    Phase 10: Exportación de informe tabular de la sesión en formato CSV con variables configurables,
+    compatible con Microsoft Excel y hojas de cálculo (UTF-8 con BOM).
+    """
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sesión no encontrada")
+
+    sec_list = [s.strip().lower() for s in (sections or "").split(",") if s.strip()]
+    csv_content = db.export_session_tabular_data(session_id, sections=sec_list, delimiter=delimiter)
+
+    safe_name = "".join(c for c in session.get("name", "sesion") if c.isalnum() or c in (" ", "_", "-")).strip() or "sesion"
+    return Response(
+        content=csv_content.encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}_{session_id}.csv"'
+        }
+    )
 
 
