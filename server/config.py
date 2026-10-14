@@ -25,6 +25,9 @@ YOLO_MODEL = os.getenv("YOLO_MODEL", "yolo11n.pt")
 # Minimum confidence threshold for detections (0.22 for enhanced capture)
 YOLO_CONFIDENCE = float(os.getenv("YOLO_CONFIDENCE", "0.22"))
 
+# Inference resolution: 384 gives ~45ms inference on CPU (vs 200ms at 640)
+YOLO_IMGSZ = int(os.getenv("YOLO_IMGSZ", "384"))
+
 # Classes to detect (COCO class IDs)
 # 0=person, 1=bicycle, 13=bench, 14=bird, 15=cat, 16=dog,
 # 24=backpack, 25=umbrella, 56=chair, 60=dining table

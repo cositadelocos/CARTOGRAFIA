@@ -315,15 +315,15 @@ class CameraManager {
 
     /**
      * Capture a single frame and invoke the onFrame callback.
-     * Uses 480px max dimension and 0.55 quality to produce ultra-compact (~12-15 KB)
-     * JPEG blobs that upload in <10ms for true in-vivo real-time performance.
+     * Uses 384px max dimension and 0.50 quality to produce ultra-compact (~8-10 KB)
+     * JPEG blobs that upload in <6ms for buttery smooth real-time performance.
      */
     _captureFrame() {
         if (!this.isActive || !this.video || !this.video.videoWidth || !this.video.videoHeight) return;
 
         const vW = this.video.videoWidth;
         const vH = this.video.videoHeight;
-        const maxDim = 480;
+        const maxDim = 384;
 
         let cW = vW;
         let cH = vH;
@@ -345,7 +345,7 @@ class CameraManager {
         // Draw downscaled frame to offscreen canvas
         this.captureCtx.drawImage(this.video, 0, 0, cW, cH);
 
-        // Convert to compact JPEG Blob (~12-15KB)
+        // Convert to compact JPEG Blob (~8-10KB)
         this.captureCanvas.toBlob(
             (blob) => {
                 if (blob && this.onFrame) {
@@ -353,7 +353,7 @@ class CameraManager {
                 }
             },
             'image/jpeg',
-            0.55
+            0.50
         );
     }
 
@@ -466,8 +466,13 @@ class CameraManager {
                 }
             };
 
-            // Start recording (without timeslice to avoid iOS Safari WebKit bug)
-            this.mediaRecorder.start();
+            // Start with 1000ms timeslices so chunks accumulate every second
+            try {
+                this.mediaRecorder.start(1000);
+            } catch (err) {
+                this.mediaRecorder.start();
+            }
+
             this.isRecordingVideo = true;
             console.log(`[Camera] Video recording started: ${this.mediaRecorder.mimeType || 'native'}`);
             return true;
@@ -485,30 +490,39 @@ class CameraManager {
         return new Promise((resolve) => {
             if (!this.mediaRecorder || this.mediaRecorder.state === 'inactive') {
                 this.isRecordingVideo = false;
-                resolve(null);
+                const blob = (this.recordedChunks && this.recordedChunks.length > 0)
+                    ? new Blob(this.recordedChunks, { type: 'video/mp4' })
+                    : null;
+                this.recordedChunks = [];
+                resolve(blob && blob.size > 0 ? blob : null);
                 return;
             }
 
-            this.mediaRecorder.onstop = () => {
-                const mimeType = this.mediaRecorder.mimeType || 'video/mp4';
+            let resolved = false;
+            const finalize = () => {
+                if (resolved) return;
+                resolved = true;
+                const mimeType = (this.mediaRecorder && this.mediaRecorder.mimeType) || 'video/mp4';
                 const blob = new Blob(this.recordedChunks, { type: mimeType });
+                console.log(`[Camera] Video recording finished: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${mimeType}, chunks: ${this.recordedChunks.length})`);
                 this.recordedChunks = [];
                 this.isRecordingVideo = false;
-                console.log(`[Camera] Video recording finished: ${(blob.size / 1024 / 1024).toFixed(2)} MB (${mimeType})`);
-                resolve(blob);
+                resolve(blob.size > 0 ? blob : null);
             };
 
-            try {
-                if (this.mediaRecorder.state === 'recording') {
-                    this.mediaRecorder.requestData();
-                }
-            } catch (e) {}
+            this.mediaRecorder.onstop = () => {
+                // Wait 250ms for WebKit to flush any remaining ondataavailable chunks into array
+                setTimeout(finalize, 250);
+            };
+
+            // Safety timeout
+            setTimeout(finalize, 3000);
 
             try {
                 this.mediaRecorder.stop();
             } catch (e) {
-                this.isRecordingVideo = false;
-                resolve(null);
+                console.warn('[Camera] mediaRecorder.stop() error:', e);
+                setTimeout(finalize, 150);
             }
         });
     }

@@ -14,6 +14,7 @@ from ultralytics import YOLO
 from config import (
     YOLO_MODEL,
     YOLO_CONFIDENCE,
+    YOLO_IMGSZ,
     DETECT_CLASSES,
     TRACKER_CONFIG,
     STOP_SPEED_THRESHOLD,
@@ -262,7 +263,7 @@ class FrameProcessor:
             classes=DETECT_CLASSES,
             conf=self.confidence,
             verbose=False,
-            imgsz=640,
+            imgsz=YOLO_IMGSZ,
         )
 
         # ─── Extract detections ──────────────────────────
@@ -279,10 +280,25 @@ class FrameProcessor:
                 if boxes.id is not None:
                     track_ids = boxes.id.cpu().numpy().astype(int)
                 else:
+                    # Spatial nearest-neighbor tracker fallback
+                    # Matches previous tracks immediately so persons are tracked from frame 1
                     track_ids = []
-                    for _ in bboxes:
-                        self._next_fallback_id += 1
-                        track_ids.append(self._next_fallback_id)
+                    for bbox in bboxes:
+                        bx = (bbox[0] + bbox[2]) / 2.0 / w
+                        by = bbox[3] / h
+                        best_tid = None
+                        best_dist = 0.18
+                        for prev_id, (px, py, _) in self.prev_positions.items():
+                            if prev_id not in track_ids:
+                                d = math.hypot(bx - px, by - py)
+                                if d < best_dist:
+                                    best_dist = d
+                                    best_tid = prev_id
+                        if best_tid is not None:
+                            track_ids.append(best_tid)
+                        else:
+                            self._next_fallback_id += 1
+                            track_ids.append(self._next_fallback_id)
 
                 for tid, bbox, conf in zip(track_ids, bboxes, confs):
                     tid = int(tid)
