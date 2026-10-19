@@ -19,6 +19,10 @@ server/storage/videos/
 __pycache__/
 *.py[cod]
 
+# Binaries & Tunnels
+*.exe
+cloudflared.exe
+
 # OS generated files
 Thumbs.db
 .DS_Store
